@@ -147,19 +147,41 @@ void LightSwitch::getJSONSettings() {
 
   if (_stateChanged) {
 
-    aJsonObject *moduleItem = aJson.createObject();
-   
-    aJson.addNumberToObject(moduleItem, "id", _moduleId);
-    aJson.addStringToObject(moduleItem, "moduleType", _moduleType);
-    aJson.addNumberToObject(moduleItem, "moduleState", _moduleState);
-    aJson.addNumberToObject(moduleItem, "zoneId", _moduleZone);
-    aJson.addNumberToObject(moduleItem, "switchState", _readSwitchState());
-    aJson.addNumberToObject(moduleItem, "lightState", _readLightState());
-    aJson.addNumberToObject(moduleItem, "lightMode", _lightMode);
+    aJsonObject *moduleItem = aJson.getArrayItem(*(_context->moduleCollection), _moduleId-1);
+    aJsonObject *moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
+    
+    // If we have an empty JSON settings structure
+    // then fill it with values
 
-    // replace ajson item in collection
-    aJson.replaceItemInArray(*_context->moduleCollection, _moduleId-1, moduleItem);
+    if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {    
+   
+      aJson.addNumberToObject(moduleItem, "id", _moduleId);
+      aJson.addStringToObject(moduleItem, "moduleType", _moduleType);
+      aJson.addNumberToObject(moduleItem, "moduleState", _moduleState);
+      aJson.addNumberToObject(moduleItem, "zoneId", _moduleZone);
+      aJson.addNumberToObject(moduleItem, "switchState", _readSwitchState());
+      aJson.addNumberToObject(moduleItem, "lightState", _readLightState());
+      aJson.addNumberToObject(moduleItem, "lightMode", _lightMode);
+
+    } else {
+      // If we have an already initialized settings JSON structure
+      // then just replace the values
+
+      moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleState");
+      moduleItemProperty->valuebool = _moduleState;
+
+      moduleItemProperty = aJson.getObjectItem(moduleItem, "switchState");
+      moduleItemProperty->valueint = _readSwitchState();
+
+      moduleItemProperty = aJson.getObjectItem(moduleItem, "lightState");
+      moduleItemProperty->valueint = _readLightState();
+
+      moduleItemProperty = aJson.getObjectItem(moduleItem, "lightMode");
+      moduleItemProperty->valueint = _lightMode;
+    }
+
     _stateChanged = false;
+
   }
 }
 

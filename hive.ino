@@ -1,13 +1,8 @@
-#include "avr/pgmspace.h"
 #include "SensorModule.h"
 #include "LightSwitch.h"
 #include "aJSON.h"
 #include "SPI.h"
 #include "Ethernet.h"
-
-// Turn on WebServer debugging
-#define WEBDUINO_SERIAL_DEBUGGING 0
-
 #include "WebServer.h"
 #include "EEPROM.h"
 #include "EEPROMAnything.h"
@@ -15,34 +10,41 @@
 #include "AppContext.h"
 #include "MemoryFree.h"
 
+// Don't waste SRAM for a default Webduino favicon
+#define WEBDUINO_FAVICON_DATA ""
+
+// Turn on WebServer debugging
+#define WEBDUINO_SERIAL_DEBUGGING 0
 
 // DEBUG variables for getting free memory size
 extern int __bss_end;
 extern void *__brkval;
 
-#define REST_REQUEST_LENGTH 255
+#define REST_REQUEST_LENGTH 128
 
 char requestBuffer[REST_REQUEST_LENGTH];
 int requestLen = REST_REQUEST_LENGTH;
 
 // This PCB id
-byte nodeId = 1;
+const byte nodeId = 1;
 
 // Define zones and count
 const byte hallZone = 1;
 const byte kitchenZone = 2;
 const byte zoneCount = 2;
-const char *zones[] = {"", "hallZone", "kitchenZone"};
+const byte zones[] = { hallZone, kitchenZone };
 
 // Total number of modules on board
 const byte modulesCount = 1;
 
 // Storage offset - modules settings come after the offset.
 // This is the size of general settings (if any)
+// One byte is always reserved for a setting presence flag
 const byte settingsOffset = 4;
 
 // ****
 // INPORTANT: remember to connect SS pin from Ethernet module to pin 10 on Arduino Mega
+//            if using W5100 separate module (not a shield)
 // ****
 // Define MAC adress of the Ethernet shield
 // First 3 octets are OUI (Organizationally Unique Identifier)
@@ -51,22 +53,20 @@ const byte settingsOffset = 4;
 byte mac[6] = { 0x90, 0xA2, 0xDA, 0x00, 0x00, 0x00 };
 
 // Store IP from DHCP request
+// TODO: add a switch to a static ip address as a fallback
 IPAddress nodeIPAddress;
 
 // Store remote IP
 IPAddress clientIPAddress(0, 0, 0, 0);
 
-// Store remote domain name
-char *clientDomain;
+// Store remote domain name for push notification
+char clientDomain[32];
 
-// Store remote URL
-char *clientURL;
+// Store remote URL for push notification
+char clientURL[32];
 
 // Create a WebServer instance
 WebServer nodeWebServer("", 80);
-
-// Create an object for making HTTP requests
-EthernetClient client;
 
 // If Ethernet is initialized and nodeWebServer is started - set to TRUE
 boolean webServerActive = false;
@@ -83,6 +83,9 @@ boolean pushNotify(byte moduleId) {
 /*  char *host;
   char buffer[32];
   
+  // Create an object for making HTTP requests
+  EthernetClient client;
+  
   aJsonObject *response;
   
   if (webServerActive) {
@@ -94,6 +97,8 @@ boolean pushNotify(byte moduleId) {
       // If we have ip address only connect with it
       if(clientIPAddress[0] > 0) {
         client.connect(clientIPAddress, 80);
+
+        // TODO: Use itoa() here
         sprintf(host, "%d.%d.%d.%d",
           clientIPAddress[0],
           clientIPAddress[1],
@@ -114,9 +119,9 @@ boolean pushNotify(byte moduleId) {
       if (client.connected() && client.available()) {
         // Read JSON response from remote
 
-        char **jsonFilter = (char *[]){ "response", NULL };
+        //char **jsonFilter = (char *[]){ "response", NULL };
         aJsonClientStream jsonStream(&client);
-        response = aJson.parse(&jsonStream, jsonFilter);
+        response = aJson.parse(&jsonStream);
         // Response structure:
         // "response" : "success"
         // "response" : "error"
@@ -183,7 +188,7 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, int *modu
       // Set the parsed settings
 
       if (sensorModuleArray[i]->setJSONSettings(moduleItem)) {
-
+        aJson.deleteItem(moduleItem);
         server.httpSuccess("application/json");
 
         // Refresh module settings in JSON collection
@@ -323,26 +328,32 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
   }
   
   if (type == WebServer::POST) {
-    char **jsonFilter = (char *[]){"domain", "url", "ip", NULL};
-    clientInfo = aJson.parse(&jsonStream, jsonFilter);
+
+    // We could use filtering, but it's memory consuming
+    // and may be omitted in merely safe environements
+
+    //char **jsonFilter = (char *[]){"domain", "url", "ip", NULL};
+    //clientInfo = aJson.parse(&jsonStream, jsonFilter);
+
+    clientInfo = aJson.parse(&jsonStream);
     
     // Discover request structure:
     // JSON object with fields
-    // domain - string, for POST request easy building
+    // domain - string, for POST request easy building (32 chars max)
     // ip address - object, if we have no local DNS and need to talk through ip address
     //    o1, o2, o3, o4 - numbers, ip address octets so we don't need to parse the address
-    // url - string, URL tail (without domain), begins with a slash
+    // url - string, URL tail (without domain), begins with a slash (32 chars max)
     
     // Get remote domain from json
     infoItem = aJson.getObjectItem(clientInfo, "domain");
     if (infoItem && (infoItem->type == aJson_String)) {
-      clientDomain = infoItem->valuestring;
+      strncpy(clientDomain, infoItem->valuestring, 32);
     }
     
     // Get remote url
     infoItem = aJson.getObjectItem(clientInfo, "url");
     if (infoItem && (infoItem->type == aJson_String)) {
-      clientURL = infoItem->valuestring;
+      strncpy(clientURL, infoItem->valuestring, 32);
     }
     
     infoItem = aJson.getObjectItem(clientInfo, "ip");
@@ -363,18 +374,21 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     
     // TODO: validate the whole structure
     server.httpSuccess("application/json");
+
+    // TODO: Reply with the whole collection JSON structure
+
     // Reply with nodeid, zones, modules count
-    clientInfo = aJson.createObject();
+    /* clientInfo = aJson.createObject();
     aJson.addItemToObject(clientInfo, "nodeId", aJson.createItem(nodeId));
     aJson.addItemToObject(clientInfo, "modulesCount", aJson.createItem(modulesCount));
-    aJson.addItemToObject(clientInfo, "zones", infoItem = aJson.createObject());
-    for (int i = 1; i < zoneCount; i++) {
-      aJson.addItemToObject(infoItem, zones[i], aJson.createItem(i));
+    aJson.addItemToObject(clientInfo, "zones", infoItem = aJson.createArray());
+    for (int i = 0; i < zoneCount - 1; i++) {
+      aJson.addItemToArray(infoItem, aJson.createItem(zones[i]));
     }
 
     aJson.print(clientInfo, &jsonStream);
     aJson.deleteItem(clientInfo);
-    aJson.deleteItem(infoItem);
+    aJson.deleteItem(infoItem);*/
   }
   
   server.httpFail();
