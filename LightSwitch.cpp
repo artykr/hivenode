@@ -217,8 +217,6 @@ boolean LightSwitch::setJSONSettings(aJsonObject *moduleItem) {
   moduleItemProperty = aJson.getObjectItem(moduleItem,  "lightMode");
   newLightMode = moduleItemProperty->valueint;
   
-  aJson.deleteItem(moduleItemProperty);
-
   settings.lightMode = newLightMode;
   settings.moduleState = newModuleState;
   

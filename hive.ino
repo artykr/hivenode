@@ -8,31 +8,23 @@
 #include "EEPROMAnything.h"
 #include "WebStream.h"
 #include "AppContext.h"
+#include "Zones.h"
 #include "MemoryFree.h"
 
 // Don't waste SRAM for a default Webduino favicon
 #define WEBDUINO_FAVICON_DATA ""
 
-// Turn on WebServer debugging
+// Turn on/off WebServer debugging
 #define WEBDUINO_SERIAL_DEBUGGING 0
 
-// DEBUG variables for getting free memory size
-extern int __bss_end;
-extern void *__brkval;
-
-#define REST_REQUEST_LENGTH 128
+// Define buffer and buffer lentgth for incoming HTTP REST request processing
+#define REST_REQUEST_LENGTH 256
 
 char requestBuffer[REST_REQUEST_LENGTH];
 int requestLen = REST_REQUEST_LENGTH;
 
 // This PCB id
 const byte nodeId = 1;
-
-// Define zones and count
-const byte hallZone = 1;
-const byte kitchenZone = 2;
-const byte zoneCount = 2;
-const byte zones[] = { hallZone, kitchenZone };
 
 // Total number of modules on board
 const byte modulesCount = 1;
@@ -43,9 +35,10 @@ const byte modulesCount = 1;
 const byte settingsOffset = 4;
 
 // ****
-// INPORTANT: remember to connect SS pin from Ethernet module to pin 10 on Arduino Mega
-//            if using W5100 separate module (not a shield)
+// INPORTANT: remember to connect SS pin from Ethernet module to pin 10
+//            on Arduino Mega if using W5100 separate module (not a shield)
 // ****
+//
 // Define MAC adress of the Ethernet shield
 // First 3 octets are OUI (Organizationally Unique Identifier)
 // of GHEO Sa company. Other 3 octets will be randomly generated.
@@ -76,6 +69,7 @@ boolean webServerActive = false;
 SensorModule *sensorModuleArray[modulesCount];
 aJsonObject *moduleCollection;
 aJsonObject *moduleItem;
+
 AppContext context(&moduleCollection, &pushNotify);                     
 
 boolean pushNotify(byte moduleId) {
@@ -143,7 +137,7 @@ boolean pushNotify(byte moduleId) {
 // Process a REST request for an item (module) (URL contains ID)
 void webItemRequest(WebServer &server, WebServer::ConnectionType type, int *moduleId) {
   
-  // Define array index which is moduleId - 1
+  // Define moduleCollelction array index which is moduleId - 1
   int i = *moduleId - 1;
 
   // DEBUG
@@ -165,12 +159,13 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, int *modu
     case WebServer::GET:
       
       // Process request for a single module (item) settings
+
       server.httpSuccess("application/json");
       sensorModuleArray[i]->getJSONSettings();     
       moduleItem = aJson.getArrayItem(moduleCollection, i);
       aJson.print(moduleItem, &jsonStream);
       
-        // DEBUG
+      // DEBUG
       Serial.print(F("Free memory after item call: "));
       Serial.println(DEBUG_memoryFree());
 
@@ -182,13 +177,18 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, int *modu
       // Parse request to JSON
       // No aJson filter used here for simplicity, speed and memory usage
       // TODO: get aJson filter from module and apply it here
+      
+      // DEBUG
+      Serial.println("Parsing incoming item");
 
-      moduleItem = aJson.parse(&jsonStream);
+      aJsonObject *newModuleItem = aJson.parse(&jsonStream);
+
+      // DEBUG
+      Serial.println("Parsed incoming item");
 
       // Set the parsed settings
+      if (sensorModuleArray[i]->setJSONSettings(newModuleItem)) {
 
-      if (sensorModuleArray[i]->setJSONSettings(moduleItem)) {
-        aJson.deleteItem(moduleItem);
         server.httpSuccess("application/json");
 
         // Refresh module settings in JSON collection
@@ -201,6 +201,9 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, int *modu
       } else {
         server.httpFail();
       }
+
+      aJson.deleteItem(newModuleItem);
+
       break;
     }
     default:
@@ -218,49 +221,17 @@ void webCollectionRequest(WebServer &server, WebServer::ConnectionType type) {
 
   switch (type) {
     case WebServer::GET:
-      {
-        server.httpSuccess("application/json");
-        // Reload JSON structures for each module
-        for (int i = 0; i < modulesCount; i++) {
-          sensorModuleArray[i]->getJSONSettings();
-        }
-
-        aJson.print(moduleCollection, &jsonStream);
-
-        break;
+    {
+      server.httpSuccess("application/json");
+      // Reload JSON structures for each module
+      for (int i = 0; i < modulesCount; i++) {
+        sensorModuleArray[i]->getJSONSettings();
       }
-    /*
 
-    // Bulk settings update is memory consumig
-    // We have only 255 chars buffer for a request by default (REST_REQUEST_LENGTH)
+      aJson.print(moduleCollection, &jsonStream);
 
-    case WebServer::PUT:
-      {
-        newModuleCollection = aJson.parse(&jsonStream);
-        // TODO: replace only valid items in collection
-        moduleItem = newModuleCollection->child;
-        
-        while (moduleItem) {
-          moduleId = aJson.getObjectItem(moduleItem, "id")->valueint;
-          if (moduleId > modulesCount || moduleId < 1) {
-            // Set error flag if settings are invalid
-            errorInRequest = !sensorModuleArray[moduleId-1]->setJSONSettings(moduleItem);
-          } else {
-            errorInRequest = true;
-          }
-          moduleItem = moduleItem->next;
-        }
-        
-        // TODO: return error object with failed module ids
-        if (errorInRequest) {
-          server.httpFail();
-        } else {
-          server.httpSuccess("application/json");
-          aJson.print(moduleCollection, &jsonStream);
-        }
-        break;
-      }
-      */
+      break;
+    }
     default:
       server.httpFail();
   }
@@ -434,6 +405,7 @@ boolean setupServer() {
 
 
 void addToJSONCollection(byte id) {
+  aJsonObject *moduleItem;
 
   moduleItem = aJson.createObject();
   aJson.addItemToObject(moduleItem, "id", aJson.createItem(id));
