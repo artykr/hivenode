@@ -1,15 +1,13 @@
 #include "SensorModule.h"
-#include "LightSwitch.h"
 #include "aJSON.h"
 #include "SPI.h"
 #include "Ethernet.h"
 #include "WebServer.h"
-#include "EEPROM.h"
-#include "EEPROMAnything.h"
 #include "WebStream.h"
 #include "AppContext.h"
-#include "Zones.h"
 #include "MemoryFree.h"
+#include "HiveSetup.h"
+#include "HiveStorage.h"
 
 // Don't waste SRAM for a default Webduino favicon
 #define WEBDUINO_FAVICON_DATA ""
@@ -17,28 +15,9 @@
 // Turn on/off WebServer debugging
 #define WEBDUINO_SERIAL_DEBUGGING 0
 
-// Define buffer and buffer lentgth for incoming HTTP REST request processing
-#define REST_REQUEST_LENGTH 256
+char requestBuffer[RestRequestLength];
+int requestLen = RestRequestLength;
 
-char requestBuffer[REST_REQUEST_LENGTH];
-int requestLen = REST_REQUEST_LENGTH;
-
-// This PCB id
-const byte nodeId = 1;
-
-// Total number of modules on board
-const byte modulesCount = 1;
-
-// Storage offset - modules settings come after the offset.
-// This is the size of general settings (if any)
-// One byte is always reserved for a setting presence flag
-const byte settingsOffset = 4;
-
-// ****
-// INPORTANT: remember to connect SS pin from Ethernet module to pin 10
-//            on Arduino Mega if using W5100 separate module (not a shield)
-// ****
-//
 // Define MAC adress of the Ethernet shield
 // First 3 octets are OUI (Organizationally Unique Identifier)
 // of GHEO Sa company. Other 3 octets will be randomly generated.
@@ -64,17 +43,14 @@ WebServer nodeWebServer("", 80);
 // If Ethernet is initialized and nodeWebServer is started - set to TRUE
 boolean webServerActive = false;
 
-// Define structure to hold all sensor modules
-
-SensorModule *sensorModuleArray[modulesCount];
 aJsonObject *moduleCollection;
 aJsonObject *moduleItem;
 
 AppContext context(&moduleCollection, &pushNotify);                     
 
+// TODO: Pass event object here (if it makes sense)
 boolean pushNotify(byte moduleId) {
-  // TODO: remove postJSON, so push notifications are just GET requests with module id - remote client will make a callback with this id
-/*  char *host;
+  char host[32];
   char buffer[32];
   
   // Create an object for making HTTP requests
@@ -92,23 +68,30 @@ boolean pushNotify(byte moduleId) {
       if(clientIPAddress[0] > 0) {
         client.connect(clientIPAddress, 80);
 
-        // TODO: Use itoa() here
-        sprintf(host, "%d.%d.%d.%d",
-          clientIPAddress[0],
-          clientIPAddress[1],
-          clientIPAddress[2],
-          clientIPAddress[3]
-        );
+        for (int i = 0; i < 4; i++)
+          strncat(host, itoa(clientIPAdress[i]));
+          if (i < 3)
+            strncat(host, ".");   
       } 
     }
     
     if (client.connected()) {
       // Call remote URL with moduleId attached
-      sprintf(buffer, "GET %s/%d HTTP/1.0", clientURL, moduleId);
-      client.println(buffer);
-      sprintf(buffer, "Host: %s", host);
-      client.println(buffer);
-      client.println("Connection: close\r\n");
+      // TODO: use no-cost stream operator for printing to client
+      
+      // Send "GET clientURL/moduleId HTTP/1.0"
+      // so the remote site knows which module settings changed
+      
+      client.print(F("GET "));
+      client.print(clientURL);
+      client.print(F("/"));
+      client.print(moduleId);
+      client.println(F(" HTTP/1.0"));
+      
+      client.print(F("Host: "));
+      client.println(host);
+ 
+      client.println(F("Connection: close\r\n"));
       
       if (client.connected() && client.available()) {
         // Read JSON response from remote
@@ -131,13 +114,13 @@ boolean pushNotify(byte moduleId) {
   }
   
   aJson.deleteItem(response);
-  return false;*/
+  return false;
 }
 
 // Process a REST request for an item (module) (URL contains ID)
-void webItemRequest(WebServer &server, WebServer::ConnectionType type, int *moduleId) {
+void webItemRequest(WebServer &server, WebServer::ConnectionType type, long *moduleId) {
   
-  // Define moduleCollelction array index which is moduleId - 1
+  // Define moduleCollelction array item index which is moduleId - 1
   int i = *moduleId - 1;
 
   // DEBUG
@@ -177,14 +160,8 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, int *modu
       // Parse request to JSON
       // No aJson filter used here for simplicity, speed and memory usage
       // TODO: get aJson filter from module and apply it here
-      
-      // DEBUG
-      Serial.println("Parsing incoming item");
 
       aJsonObject *newModuleItem = aJson.parse(&jsonStream);
-
-      // DEBUG
-      Serial.println("Parsed incoming item");
 
       // Set the parsed settings
       if (sensorModuleArray[i]->setJSONSettings(newModuleItem)) {
@@ -213,9 +190,7 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, int *modu
 
 // Process request for the whole items (modules) settings collection 
 void webCollectionRequest(WebServer &server, WebServer::ConnectionType type) {
-  aJsonObject *newModuleCollection;
-  boolean errorInRequest = false;
-  byte moduleId;
+  
   WebStream webStream(&server);
   aJsonStream jsonStream(&webStream);
 
@@ -228,6 +203,7 @@ void webCollectionRequest(WebServer &server, WebServer::ConnectionType type) {
         sensorModuleArray[i]->getJSONSettings();
       }
 
+      // Print out the whole collection
       aJson.print(moduleCollection, &jsonStream);
 
       break;
@@ -243,13 +219,14 @@ void webCollectionRequest(WebServer &server, WebServer::ConnectionType type) {
 void dispatchRESTRequest(WebServer &server, WebServer::ConnectionType type,
                         char **url_path, char *url_tail,
                         bool tail_complete) {
-  int moduleId = 0;
+  long moduleId = 0;
 
   // For a HEAD request return only headers
   if (type == WebServer::HEAD) {
     server.httpSuccess();
     return;
   }
+  
   // RESTful interface structure:
   // /modules
   //      GET - outputs json structure for all modules
@@ -258,22 +235,25 @@ void dispatchRESTRequest(WebServer &server, WebServer::ConnectionType type,
   //      GET - outputs json structure for a module with moduleId == <id>
   //      PUT - updates settings for a module with moduleId == <id>
   
-  // TODO: check if the 0 element in url_path really contains something
   if (strcmp(url_path[0], "modules") == 0) {
     if (url_path[1]) {
-      moduleId = atoi(url_path[1]);
+      // We use safe strtol instead of unsafe atoi at a cost
+      // of moduleId being of type long
+      moduleId = strtol(url_path[1]);
     }
     
-    if (moduleId) {
+    if (moduleId > 0) {
 
-      // We deal with a single module
+      // We deal with a single module request
       webItemRequest(server, type, &moduleId);
       return;
+      
     } else {
 
-      // We deal with the whole modules collection
+      // We deal with the whole modules collection request
       webCollectionRequest(server, type);
       return;
+      
     }
     
   }
@@ -345,21 +325,12 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     
     // TODO: validate the whole structure
     server.httpSuccess("application/json");
-
-    // TODO: Reply with the whole collection JSON structure
-
-    // Reply with nodeid, zones, modules count
-    /* clientInfo = aJson.createObject();
-    aJson.addItemToObject(clientInfo, "nodeId", aJson.createItem(nodeId));
-    aJson.addItemToObject(clientInfo, "modulesCount", aJson.createItem(modulesCount));
-    aJson.addItemToObject(clientInfo, "zones", infoItem = aJson.createArray());
-    for (int i = 0; i < zoneCount - 1; i++) {
-      aJson.addItemToArray(infoItem, aJson.createItem(zones[i]));
+    
+    for (int i = 0; i < modulesCount; i++) {
+      sensorModuleArray[i]->getJSONSettings();
     }
 
-    aJson.print(clientInfo, &jsonStream);
-    aJson.deleteItem(clientInfo);
-    aJson.deleteItem(infoItem);*/
+    aJson.print(moduleCollection, &jsonStream);
   }
   
   server.httpFail();
@@ -405,15 +376,14 @@ boolean setupServer() {
 
 
 void addToJSONCollection(byte id) {
-  aJsonObject *moduleItem;
-
+  //aJsonObject *moduleItem;
   moduleItem = aJson.createObject();
   aJson.addItemToObject(moduleItem, "id", aJson.createItem(id));
   aJson.addItemToArray(moduleCollection, moduleItem);
 
 }
 
-// Generate MAC address and store it in EEPROM
+// Generate MAC address and store it in available storage
 void setupMACAddress(boolean loadSettings) {
 
   // TODO: Separate loading and saving from MAC generation
@@ -421,14 +391,14 @@ void setupMACAddress(boolean loadSettings) {
   // Load stored settings
   if (loadSettings) {
     for (int i = 1; i < 4; i++) {
-      mac[i+2] = EEPROM.read(i);
+      mac[i+2] = readStorage(i);
     }
   // If there are no stored settings, generate 3 octets of MAC address
   } else {
     randomSeed(analogRead(0));
     for (int i = 1; i < 4; i++) {
       mac[i+2] = random(0, 255);
-      EEPROM.write(i, mac[i+2]);
+      writeStorage(i, mac[i+2]);
     }
   }
 
@@ -436,9 +406,6 @@ void setupMACAddress(boolean loadSettings) {
 
 // Arduino setup routine
 void setup() {
-  int lastStoragePointer = settingsOffset;
-  byte storageMark = 0;
-  byte moduleId = 1;
   boolean loadSettings = 0;
   
   // DEBUG
@@ -447,43 +414,37 @@ void setup() {
 
   Serial.print(F("Free memory on start: "));
   Serial.println(DEBUG_memoryFree());
-
-  // Load and check settings flag byte, set settings load flag for modules
   
-  EEPROM_readAnything(0, storageMark);
+  // Init storage and check for existing settings
+  loadSettings = initHiveStorage();
   
-  // DEBUG
-  Serial.print(F("Storage mark: "));
-  Serial.println(storageMark);
-
-  storageMark == 99 ? loadSettings = 1 : loadSettings = 0;
- 
+  // Define and init modules
+  initModules(&context, loadSettings);
+  
   // Create and fill json structure for the REST interface
   moduleCollection = aJson.createArray();
   
-  // Create objects for all sensor modules and init each one
-  sensorModuleArray[0] = new LightSwitch(&context, hallZone, moduleId, lastStoragePointer, loadSettings, 8, 4);
+  // TODO: Start cycle through SensorModuleArray
+  for (byte i = 1; i <= modulesCount; i++) {
+    // Create an empty item in json collection
+    addToJSONCollection(i);
+    
+    // Add modules settings to this item through the context object
+    sensorModuleArray[i - 1]->getJSONSettings();
+  }
   
-  // Create an empty item in json collection and add modules settings to this item through the context object
-  addToJSONCollection(moduleId);
-
   // DEBUG
   Serial.print(F("Context collection: "));
   char *json = aJson.print(*context.moduleCollection);
   Serial.println(json);
   free(json);
-
-  sensorModuleArray[0]->getJSONSettings();
   
   // DEBUG
   Serial.print(F("Current collection: "));
   char *json1 = aJson.print(moduleCollection);
   Serial.println(json1);
   free(json1);
-
-  moduleId++;
-  lastStoragePointer += sensorModuleArray[0]->getStorageSize();
-
+  
   setupMACAddress(loadSettings);
   webServerActive = setupServer();
 
@@ -493,13 +454,11 @@ void setup() {
   }
 
   // Set storage mark after all modules init
-  if (!loadSettings) EEPROM_writeAnything(0, 99);
+  if (!loadSettings) writeStorage(0, StorageCheckByte);
   
   // DEBUG
   Serial.print(F("Free memory after setup: "));
   Serial.println(DEBUG_memoryFree());
-
-  delay(1000);
 }
 
 void loop() {

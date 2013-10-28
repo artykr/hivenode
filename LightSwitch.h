@@ -6,6 +6,8 @@
 #ifndef LightSwitch_h
 #define LightSwitch_h
 #define LIGHTSWITCH_MODULE_VERSION 1
+
+// TODO: change to const
 #define LIGHTSWITCH_RELAY_ON 0
 #define LIGHTSWITCH_RELAY_OFF 1
 

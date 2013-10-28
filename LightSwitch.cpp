@@ -1,6 +1,5 @@
 #include "Arduino.h"
-#include "EEPROM.h"
-#include "EEPROMAnything.h"
+#include "HiveStorage.h"
 #include "LightSwitch.h"
 #include "SensorModule.h"
 #include "aJson.h"
@@ -28,7 +27,6 @@ LightSwitch::LightSwitch(AppContext *context, const byte zone, byte moduleId, in
 
   pinMode(_switchPin, INPUT);
   
-
   if (loadSettings) {
     _loadSettings();
   } else {
@@ -42,19 +40,22 @@ LightSwitch::LightSwitch(AppContext *context, const byte zone, byte moduleId, in
   if (!_moduleState) {
     digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
   } else {
-    if (_lightMode == 1) {  // If there's a manual "on" override
-      digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON);
+  
+    switch (_lightMode) {
+      case 1:
+        // If there's a manual "on" override
+        digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON);
+        break;
+      case 2:
+        // If there's a manual "off" override
+        digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+        break;
+      case 0:
+        // If there's auto switch mode
+        _previousSwitchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+        break;
     }
     
-    if (_lightMode == 2) { // If there's a manual "off" override
-      digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
-    }
-    
-    if (_lightMode == 0) {
-      _previousSwitchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
-
-    }
-
     _previousLightState = _readLightState();
   }
 
@@ -69,7 +70,7 @@ byte LightSwitch::getStorageSize () {
 void LightSwitch::_loadSettings() {
   config_t settings;
 
-  EEPROM_readAnything(_storagePointer, settings);
+  readStorage(_storagePointer, settings);
   _lightMode = settings.lightMode;
   _moduleState = settings.moduleState;
   _stateChanged = true;
@@ -79,7 +80,7 @@ void LightSwitch::_saveSettings() {
   config_t settings;
   settings.lightMode = _lightMode;
   settings.moduleState = _moduleState;
-  EEPROM_writeAnything(_storagePointer, settings);
+  writeStorage(_storagePointer, settings);
 }
 
 byte LightSwitch::_readSwitchState () {
@@ -154,7 +155,8 @@ void LightSwitch::getJSONSettings() {
     // then fill it with values
 
     if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {    
-   
+      
+      // TODO: Add prefixes to param names to mark readonly fields
       aJson.addNumberToObject(moduleItem, "id", _moduleId);
       aJson.addStringToObject(moduleItem, "moduleType", _moduleType);
       aJson.addNumberToObject(moduleItem, "moduleState", _moduleState);
