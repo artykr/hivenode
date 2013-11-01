@@ -6,9 +6,9 @@
 #ifndef HiveStorage_h
 #define HiveStorage_h
 
-#include "Arduino.h"
-#include "SD.h"
 #include "EEPROM.h"
+#include "SD.h"
+#include "SPI.h"
 #include "HiveSetup.h"
 
 extern uint8_t StorageType;
@@ -16,11 +16,14 @@ extern uint8_t StorageType;
 uint8_t initHiveStorage();
 uint8_t initHiveSDStorage();
 uint8_t initHiveEEPROMStorage();
+
+extern void SDStorageOn();
+extern void SDStorageOff();
     
-template <class T> int writeStorage(int position, T& value) {
-  const byte* p = (const byte*)(const void*)&value;
+template <class T> int writeStorage(int position, const T& value) {
+  const byte *p = (const byte*)(const void*)&value;
   unsigned int i;
-    
+  
   if (StorageType == EEPROMStorage) {
     for (i = 0; i < sizeof(value); i++)
       EEPROM.write(position++, *p++);
@@ -28,15 +31,25 @@ template <class T> int writeStorage(int position, T& value) {
   }
   
   if (StorageType == SDStorage) {
+  
+    SDStorageOn();
     File sdFile = SD.open(StorageFileName, FILE_WRITE);
+    
     if (sdFile) {
-      sdFile->seek(position);
+    
+      sdFile.seek(position);
       for (i = 0; i < sizeof(value); i++)
-        sdFile->write(*p++);
+        sdFile.write(*p++);
       sdFile.close();
+      
+      SDStorageOff();
       return i;
+      
     } else {
+    
+      SDStorageOff();
       return -1;
+      
     }
   }
   
@@ -44,7 +57,7 @@ template <class T> int writeStorage(int position, T& value) {
 }
     
 template <class T> int readStorage(int position, T& value) {
-  byte* p = (byte*)(void*)&value;
+  byte *p = (byte*)(void*)&value;
   unsigned int i;
     
   if (StorageType == EEPROMStorage) {
@@ -54,13 +67,20 @@ template <class T> int readStorage(int position, T& value) {
   }
     
   if (StorageType == SDStorage) {
+  
+    SDStorageOn();
     File sdFile = SD.open(StorageFileName, FILE_READ);
+    
     if (sdFile) {
-      sdFile->seek(position);
+    
+      sdFile.seek(position);
       for (i = 0; i < sizeof(value); i++)
-        *p++ = sdFile->read();
+        *p++ = sdFile.read();
       sdFile.close();
+      
+      SDStorageOff();
       return i;
+      
     }
   }
   

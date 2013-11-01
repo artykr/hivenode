@@ -2,6 +2,7 @@
 #define HiveSettings_h
 
 #include "SensorModule.h"
+#include "AppContext.h"
 
 // Stored at the first byte of eeprom indicates that settings are already
 // written
@@ -38,10 +39,16 @@ const uint8_t EthernetCSPin = 10;
 const byte SettingsOffset = 4;
 
 const uint8_t EEPROMStorage = 1;
-const uint8_t SDstorage = 2;
-const char* StorageFileName = "settings.txt";
+const uint8_t SDStorage = 2;
+
+// No changeable parameters below this line
+
+// Name string is assigned in cpp file
+extern char StorageFileName[16];
 
 // Define global structure to hold all sensor modules
-extern SensorModule *sensorModuleArray;
+extern SensorModule *sensorModuleArray[modulesCount];
+
+void initModules(AppContext *context, boolean loadSettings);
 
 #endif

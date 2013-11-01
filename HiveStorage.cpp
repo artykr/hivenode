@@ -1,8 +1,24 @@
 #include "HiveSetup.h"
-#include "EEPROM.h"
 #include "SD.h"
+#include "EEPROM.h"
 
 uint8_t StorageType = EEPROMStorage;
+
+void SDStorageOn() {
+  // Disable Ethernet on SPI first
+  // so we can talk to SD
+  digitalWrite(EthernetCSPin, HIGH);
+  // and enable SD
+  digitalWrite(SDCSPin, LOW);
+}
+
+void SDStorageOff() {
+  // Disable sD on SPI first
+  // so we can talk to Ethernet
+  digitalWrite(SDCSPin, HIGH);
+  // and enable Ethernet
+  digitalWrite(EthernetCSPin, LOW);
+}
 
 // Returns
 //  0 if storage isn't available
@@ -11,18 +27,16 @@ uint8_t StorageType = EEPROMStorage;
 uint8_t initHiveSDStorage() {
   uint8_t storageResult = 0;
   Sd2Card card;
-  
+  SdVolume volume;
+  char buffer[16];
+
   // Set both CS pins to output just in case
   pinMode(SDCSPin, OUTPUT);
   pinMode(EthernetCSPin, OUTPUT);
   
-  // Disable Ethernet on SPI first
-  // so we can talk to SD
-  digitalWrite(EthernetCSPin, HIGH);
-  // and enable SD
-  digitalWrite(SDCSPin, LOW);
+  SDStorageOn();
   
-  if (!card.init(SPI_HALF_SPEED, chipSelect)) {
+  if (!card.init(SPI_HALF_SPEED, SDCSPin)) {
     storageResult = 0;
   }
   
@@ -30,15 +44,15 @@ uint8_t initHiveSDStorage() {
     storageResult = 0;
   }
   
-  if (SD.exists(StorageFileName)) {
+  strncpy(buffer, StorageFileName, sizeof(buffer));
+
+  if (SD.exists(buffer)) {
     storageResult = 2;
   } else {
     storageResult = 1;
   }
   
-  // Disable SD card and enable Ethernet
-  digitalWrite(SDCSPin, HIGH);
-  digitalWrite(EthernetCSPin, LOW);
+  SDStorageOff();
   
   return storageResult;
 }
@@ -68,7 +82,7 @@ uint8_t initHiveStorage() {
     return initHiveEEPROMStorage();
   } else {
     // Use SD card if available
-    StorageType = SDstorage;
+    StorageType = SDStorage;
     // Tell if we need to load settings (0 or 1)
     return initResult - 1;
   }

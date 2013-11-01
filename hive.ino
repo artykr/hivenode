@@ -7,6 +7,8 @@
 #include "AppContext.h"
 #include "MemoryFree.h"
 #include "HiveSetup.h"
+#include "EEPROM.h"
+#include "SD.h"
 #include "HiveStorage.h"
 
 // Don't waste SRAM for a default Webduino favicon
@@ -75,10 +77,12 @@ boolean pushNotify(byte moduleId) {
       if(clientIPAddress[0] > 0) {
         client.connect(clientIPAddress, 80);
 
-        for (int i = 0; i < 4; i++)
-          strncat(host, itoa(clientIPAdress[i]));
+        for (int i = 0; i < 4; i++) {
+          itoa(clientIPAddress[i], buffer, 10);
+          strncat(host, buffer, strlen(buffer));
           if (i < 3)
-            strncat(host, ".");   
+            strncat(host, ".", 1);
+        }
       } 
     }
     
@@ -86,11 +90,13 @@ boolean pushNotify(byte moduleId) {
       // Call remote URL with moduleId attached
       // TODO: use no-cost stream operator for printing to client
       
-      // Send "GET clientURL/moduleId HTTP/1.0"
-      // so the remote site knows which module settings changed
+      // Send "GET clientURL/nodeId/moduleId HTTP/1.0"
+      // so the remote site knows which pcb/module settings changed
       
       client.print(F("GET "));
       client.print(clientURL);
+      client.print(F("/"));
+      client.print(nodeId);
       client.print(F("/"));
       client.print(moduleId);
       client.println(F(" HTTP/1.0"));
@@ -246,7 +252,7 @@ void dispatchRESTRequest(WebServer &server, WebServer::ConnectionType type,
     if (url_path[1]) {
       // We use safe strtol instead of unsafe atoi at a cost
       // of moduleId being of type long
-      moduleId = strtol(url_path[1]);
+      moduleId = strtol(url_path[1], NULL ,10);
     }
     
     if (moduleId > 0) {
@@ -295,10 +301,10 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
 
     clientInfo = aJson.parse(&jsonStream);
     
-    // Discover request structure:
-    // JSON object with fields
+    // Discover request structure
+    // JSON object with fields:
     // domain - string, for POST request easy building (32 chars max)
-    // ip address - object, if we have no local DNS and need to talk through ip address
+    // ip - object, if we have no local DNS and need to talk through ip address
     //    o1, o2, o3, o4 - numbers, ip address octets so we don't need to parse the address
     // url - string, URL tail (without domain), begins with a slash (32 chars max)
     
@@ -344,11 +350,14 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     // TODO: validate the whole structure
     server.httpSuccess("application/json");
     
-    for (int i = 0; i < modulesCount; i++) {
-      sensorModuleArray[i]->getJSONSettings();
-    }
-
+    infoItem = aJson.createObject();
+    // Prepare JSON structure containing pcb id and number of sensor modules
+    aJson.addItemToObject(infoItem, "id", aJson.createItem(nodeId));
+    aJson.addItemToObject(infoItem, "modulesCount", aJson.createItem(modulesCount));
+    // Output response and delete aJson object
     aJson.print(moduleCollection, &jsonStream);
+    aJson.deleteItem(infoItem);
+    
   }
   
   server.httpFail();
@@ -364,7 +373,14 @@ void webFailureCommand(WebServer &server, WebServer::ConnectionType type, char *
 boolean setupServer() {
   // DEBUG
   Serial.println(F("Starting Ethernet..."));
-
+    pinMode(EthernetCSPin, OUTPUT);
+  
+  // Disable SD on SPI first
+  // so we can talk to Ethernet
+  digitalWrite(SDCSPin, HIGH);
+  // and disable SD
+  digitalWrite(EthernetCSPin, LOW);
+  
   if (Ethernet.begin(mac)) {
     // Give Ethernet time to initialize
     delay(2000);
@@ -388,7 +404,10 @@ boolean setupServer() {
   
   // DEBUG
   Serial.println(F("Failed to start Ethernet"));
-
+  
+  digitalWrite(SDCSPin, LOW);
+  digitalWrite(EthernetCSPin, HIGH);
+  
   return false;
 }
 
@@ -409,7 +428,7 @@ void setupMACAddress(boolean loadSettings) {
   // Load stored settings
   if (loadSettings) {
     for (int i = 1; i < 4; i++) {
-      mac[i+2] = readStorage(i);
+      readStorage(i, mac[i+2]);
     }
   // If there are no stored settings, generate 3 octets of MAC address
   } else {
