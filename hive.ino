@@ -31,11 +31,13 @@ IPAddress nodeIPAddress;
 // Store remote IP
 IPAddress clientIPAddress(0, 0, 0, 0);
 
+const uint8_t CommonBufferLength = 32;
+
 // Store remote domain name for push notification
-char clientDomain[32];
+char clientDomain[CommonBufferLength];
 
 // Store remote URL for push notification
-char clientURL[32];
+char clientURL[CommonBufferLength];
 
 // Create a WebServer instance
 WebServer nodeWebServer("", 80);
@@ -50,8 +52,8 @@ AppContext context(&moduleCollection, &pushNotify);
 
 // TODO: Pass event object here (if it makes sense)
 boolean pushNotify(byte moduleId) {
-  char host[32];
-  char buffer[32];
+  char host[CommonBufferLength];
+  char buffer[CommonBufferLength];
   
   // Create an object for making HTTP requests
   EthernetClient client;
@@ -62,7 +64,12 @@ boolean pushNotify(byte moduleId) {
     // If we have a domain, connect with it
     if ((clientDomain != NULL) && (strlen(clientDomain) > 0)) {
       client.connect(clientDomain, 80);
-      host = clientDomain;
+      strncpy(host, clientDomain, sizeof(host) - 1);
+      // Null-terminate the string just in case
+      if (sizeof(host) > 0)
+      {
+        host[sizeof(host)-1] = 0;
+      }
     } else {
       // If we have ip address only connect with it
       if(clientIPAddress[0] > 0) {
@@ -298,13 +305,24 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     // Get remote domain from json
     infoItem = aJson.getObjectItem(clientInfo, "domain");
     if (infoItem && (infoItem->type == aJson_String)) {
-      strncpy(clientDomain, infoItem->valuestring, 32);
+      strncpy(clientDomain, infoItem->valuestring, sizeof(clientDomain) - 1);
+
+      // Null-terminate the string just in case
+      if (sizeof(clientDomain) > 0)
+      {
+        clientDomain[sizeof(clientDomain)-1] = 0;
+      }
     }
     
     // Get remote url
     infoItem = aJson.getObjectItem(clientInfo, "url");
     if (infoItem && (infoItem->type == aJson_String)) {
-      strncpy(clientURL, infoItem->valuestring, 32);
+      strncpy(clientURL, infoItem->valuestring, sizeof(clientURL) - 1);
+      // Null-terminate the string just in case
+      if (sizeof(clientURL) > 0)
+      {
+        clientURL[sizeof(clientURL)-1] = 0;
+      }
     }
     
     infoItem = aJson.getObjectItem(clientInfo, "ip");
