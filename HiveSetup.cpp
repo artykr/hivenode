@@ -14,4 +14,7 @@ void initModules(AppContext *context, boolean loadSettings) {
   sensorModuleArray[0] = new LightSwitch(context, hallZone, 1, lastStoragePointer, loadSettings, 8, 4);
  
   lastStoragePointer += sensorModuleArray[0]->getStorageSize();
+  
+  // DEBUG
+  Serial.println(F("Set up modules array"));
 }

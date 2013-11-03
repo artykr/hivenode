@@ -72,17 +72,31 @@ uint8_t initHiveEEPROMStorage() {
 uint8_t initHiveStorage() {
   uint8_t initResult = 0;
   
+  Serial.print(F("Set up storage: "));
+
   // Check if there's an SD card available
   initResult = initHiveSDStorage();
   
   if (initResult == 0) {
     // If no SD card then use EEPROM for storage
     StorageType = EEPROMStorage;
+    
+    // DEBUG
+    Serial.println(F("SD"));
+    Serial.print(F("Init result: "));
+    Serial.println(initResult);
+
     // Tell if we need to load settings
     return initHiveEEPROMStorage();
   } else {
     // Use SD card if available
     StorageType = SDStorage;
+    
+    // DEBUG
+    Serial.println(F("SD"));
+    Serial.print(F("Init result: "));
+    Serial.println(initResult);
+
     // Tell if we need to load settings (0 or 1)
     return initResult - 1;
   }

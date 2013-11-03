@@ -378,7 +378,7 @@ boolean setupServer() {
   // Disable SD on SPI first
   // so we can talk to Ethernet
   digitalWrite(SDCSPin, HIGH);
-  // and disable SD
+  // and enable Ethernet
   digitalWrite(EthernetCSPin, LOW);
   
   if (Ethernet.begin(mac)) {
@@ -405,6 +405,7 @@ boolean setupServer() {
   // DEBUG
   Serial.println(F("Failed to start Ethernet"));
   
+  // Enable SD and disable Ethernet on SPI
   digitalWrite(SDCSPin, LOW);
   digitalWrite(EthernetCSPin, HIGH);
   
