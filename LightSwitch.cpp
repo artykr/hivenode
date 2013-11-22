@@ -258,7 +258,14 @@ void LightSwitch::turnModuleOff() {
 void LightSwitch::turnModuleOn() {
   if (!_moduleState) {
     _switchState = digitalRead(_switchPin);
-    _switchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+    
+    // Check current operation mode (auto or manual override)
+    if (_lightMode == 0) {
+      _switchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+    } else {
+      _lightMode == 1 ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+    }
+
     _moduleState = true;
     _stateChanged = true;
   }

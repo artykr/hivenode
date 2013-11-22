@@ -240,6 +240,8 @@ void dispatchRESTRequest(WebServer &server, WebServer::ConnectionType type,
     return;
   }
   
+  Serial.println(F("Processing web request..."));
+
   // RESTful interface structure:
   // /modules
   //      GET - outputs json structure for all modules
@@ -249,6 +251,9 @@ void dispatchRESTRequest(WebServer &server, WebServer::ConnectionType type,
   //      PUT - updates settings for a module with moduleId == <id>
   
   if (strcmp(url_path[0], "modules") == 0) {
+
+    Serial.println(F("Found /modules in request URL"));
+
     if (url_path[1]) {
       // We use safe strtol instead of unsafe atoi at a cost
       // of moduleId being of type long
@@ -355,7 +360,7 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     aJson.addItemToObject(infoItem, "id", aJson.createItem(nodeId));
     aJson.addItemToObject(infoItem, "modulesCount", aJson.createItem(modulesCount));
     // Output response and delete aJson object
-    aJson.print(moduleCollection, &jsonStream);
+    aJson.print(infoItem, &jsonStream);
     aJson.deleteItem(infoItem);
     
   }

@@ -37,19 +37,29 @@ uint8_t initHiveSDStorage() {
   SDStorageOn();
   
   if (!card.init(SPI_HALF_SPEED, SDCSPin)) {
-    storageResult = 0;
+    // DEBUG
+    Serial.println(F("SD init failed"));
+    return 0;
   }
   
   if (!volume.init(card)) {
-    storageResult = 0;
+    // DEBUG
+    Serial.println(F("SD volume init failed"));
+    return 0;
   }
-  
+
   strncpy(buffer, StorageFileName, sizeof(buffer));
 
   if (SD.exists(buffer)) {
     storageResult = 2;
   } else {
     storageResult = 1;
+
+    // Init storage with nulls
+    File sdFile = SD.open(StorageFileName, FILE_WRITE);
+    for (int i = 0; i <= SettingsOffset; i++)
+      sdFile.write("0");
+    sdFile.close();
   }
   
   SDStorageOff();

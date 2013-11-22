@@ -31,12 +31,18 @@ template <class T> int writeStorage(int position, const T& value) {
   }
   
   if (StorageType == SDStorage) {
-  
+
+    // DEBUG
+    Serial.print(F("Writing to SD to file "));
+    Serial.println(StorageFileName);
+
     SDStorageOn();
     File sdFile = SD.open(StorageFileName, FILE_WRITE);
     
     if (sdFile) {
-    
+      // DEBUG
+      Serial.println(F("Opened file for writing"));
+
       sdFile.seek(position);
       for (i = 0; i < sizeof(value); i++)
         sdFile.write(*p++);
@@ -46,7 +52,7 @@ template <class T> int writeStorage(int position, const T& value) {
       return i;
       
     } else {
-    
+      
       SDStorageOff();
       return -1;
       
@@ -67,12 +73,18 @@ template <class T> int readStorage(int position, T& value) {
   }
     
   if (StorageType == SDStorage) {
-  
+    
+    // DEBUG
+    Serial.println(F("Reading from SD card"));
+
     SDStorageOn();
-    File sdFile = SD.open(StorageFileName, FILE_READ);
+    File sdFile = SD.open(StorageFileName);
     
     if (sdFile) {
-    
+      
+      // DEBUG
+      Serial.println(F("File is open"));
+
       sdFile.seek(position);
       for (i = 0; i < sizeof(value); i++)
         *p++ = sdFile.read();
