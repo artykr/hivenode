@@ -10,21 +10,22 @@
 #include "SD.h"
 #include "SPI.h"
 #include "HiveSetup.h"
+#include "DeviceDispatch.h"
 
 extern uint8_t StorageType;
 
-uint8_t initHiveStorage();
-uint8_t initHiveSDStorage();
-uint8_t initHiveEEPROMStorage();
-
-extern void SDStorageOn();
-extern void SDStorageOff();
+uint8_t initStorage();
+uint8_t initSDStorage();
+uint8_t initEEPROMStorage();
+void saveSystemSettings();
+uint8_t loadSystemSettings();
     
 template <class T> int writeStorage(int position, const T& value) {
   const byte *p = (const byte*)(const void*)&value;
   unsigned int i;
   
   if (StorageType == EEPROMStorage) {
+    Serial.print(F("Writing to EEPROM"));
     for (i = 0; i < sizeof(value); i++)
       EEPROM.write(position++, *p++);
     return i;
@@ -35,27 +36,29 @@ template <class T> int writeStorage(int position, const T& value) {
     // DEBUG
     Serial.print(F("Writing to SD to file "));
     Serial.println(StorageFileName);
-
-    SDStorageOn();
+    
+    // Select slave SPI device
+    useDevice(DeviceIdSD);
+    
     File sdFile = SD.open(StorageFileName, FILE_WRITE);
     
     if (sdFile) {
       // DEBUG
       Serial.println(F("Opened file for writing"));
 
-      sdFile.seek(position);
-      for (i = 0; i < sizeof(value); i++)
-        sdFile.write(*p++);
-      sdFile.close();
+      if (sdFile.seek(position)) {
+        for (i = 0; i < sizeof(value); i++)
+          sdFile.write(*p++);
+      }
       
-      SDStorageOff();
+      sdFile.close();
       return i;
       
     } else {
-      
-      SDStorageOff();
+      // DEBUG
+      Serial.println("Unable to open storage file fo writing");
+
       return -1;
-      
     }
   }
   
@@ -77,7 +80,8 @@ template <class T> int readStorage(int position, T& value) {
     // DEBUG
     Serial.println(F("Reading from SD card"));
 
-    SDStorageOn();
+    useDevice(DeviceIdSD);
+    
     File sdFile = SD.open(StorageFileName);
     
     if (sdFile) {
@@ -85,14 +89,13 @@ template <class T> int readStorage(int position, T& value) {
       // DEBUG
       Serial.println(F("File is open"));
 
-      sdFile.seek(position);
-      for (i = 0; i < sizeof(value); i++)
-        *p++ = sdFile.read();
+      if (sdFile.seek(position)) {
+        for (i = 0; i < sizeof(value); i++)
+          *p++ = sdFile.read();
+      }
+      
       sdFile.close();
-      
-      SDStorageOff();
       return i;
-      
     }
   }
   

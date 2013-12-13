@@ -58,6 +58,7 @@ class LightSwitch : public SensorModule
     boolean _previousSwitchState; // Save previous state for debounce to work
     boolean _switchState;         // Current switch state. 1 = on, 0 = off relay-aware state
     boolean _previousLightState;  // Save previous light state to switch only if changed
+    uint8_t _switchCount;
     AppContext *_context;         // Pointer to the AppContext object
     
     void _saveSettings();         // Puts settings into EEPROM

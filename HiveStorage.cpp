@@ -1,75 +1,74 @@
 #include "HiveSetup.h"
 #include "SD.h"
 #include "EEPROM.h"
+#include "HiveStorage.h"
 
 uint8_t StorageType = EEPROMStorage;
-
-void SDStorageOn() {
-  // Disable Ethernet on SPI first
-  // so we can talk to SD
-  digitalWrite(EthernetCSPin, HIGH);
-  // and enable SD
-  digitalWrite(SDCSPin, LOW);
-}
-
-void SDStorageOff() {
-  // Disable sD on SPI first
-  // so we can talk to Ethernet
-  digitalWrite(SDCSPin, HIGH);
-  // and enable Ethernet
-  digitalWrite(EthernetCSPin, LOW);
-}
 
 // Returns
 //  0 if storage isn't available
 //  1 if storage is available and empty
 //  2 if storage is available and filled
-uint8_t initHiveSDStorage() {
+uint8_t initSDStorage() {
   uint8_t storageResult = 0;
   Sd2Card card;
-  SdVolume volume;
+  File sdFile;
   char buffer[16];
 
-  // Set both CS pins to output just in case
-  pinMode(SDCSPin, OUTPUT);
-  pinMode(EthernetCSPin, OUTPUT);
+  useDevice(DeviceIdSD);
   
-  SDStorageOn();
-  
-  if (!card.init(SPI_HALF_SPEED, SDCSPin)) {
+  // DEBUG
+  Serial.print("SD CS pin: ");
+  Serial.println(DevicesCSPins[DeviceIdSD]);
+
+/*  if (!card.init(SPI_HALF_SPEED, DevicesCSPins[DeviceIdSD])) {
     // DEBUG
     Serial.println(F("SD init failed"));
     return 0;
   }
-  
+
   if (!volume.init(card)) {
     // DEBUG
     Serial.println(F("SD volume init failed"));
+    return 0;
+  }*/
+
+  if (!SD.begin(DevicesCSPins[DeviceIdSD])) {
+    Serial.println("Card init failed, or not present");
+    // don't do anything more:
     return 0;
   }
 
   strncpy(buffer, StorageFileName, sizeof(buffer));
 
   if (SD.exists(buffer)) {
-    storageResult = 2;
+    // DEBUG
+    Serial.println("Found settings file");
+
+    File sdFile = SD.open(buffer, FILE_READ);
+    
+    if (sdFile && sdFile.size() > 0) {
+      // DEBUG
+      Serial.println("File size > 0");
+
+      storageResult = 2;
+    } else {
+      // DEBUG
+      Serial.println("File is empty");
+
+      storageResult = 1;
+    }
+    
   } else {
     storageResult = 1;
-
-    // Init storage with nulls
-    File sdFile = SD.open(StorageFileName, FILE_WRITE);
-    for (int i = 0; i <= SettingsOffset; i++)
-      sdFile.write("0");
-    sdFile.close();
   }
-  
-  SDStorageOff();
   
   return storageResult;
 }
 
 // Returns true if there are saved settings
 // otherwise returns false
-uint8_t initHiveEEPROMStorage() {
+uint8_t initEEPROMStorage() {
   byte checkByte;
   checkByte = EEPROM.read(0);
   if (checkByte == StorageCheckByte) {
@@ -79,28 +78,33 @@ uint8_t initHiveEEPROMStorage() {
   }
 }
 
-uint8_t initHiveStorage() {
+uint8_t initStorage() {
   uint8_t initResult = 0;
   
+  // DEBUG
   Serial.print(F("Set up storage: "));
 
   // Check if there's an SD card available
-  initResult = initHiveSDStorage();
+  initResult = initSDStorage();
   
   if (initResult == 0) {
     // If no SD card then use EEPROM for storage
     StorageType = EEPROMStorage;
     
     // DEBUG
-    Serial.println(F("SD"));
+    Serial.println(F("EEPROM"));
     Serial.print(F("Init result: "));
     Serial.println(initResult);
 
     // Tell if we need to load settings
-    return initHiveEEPROMStorage();
+    return initEEPROMStorage();
   } else {
     // Use SD card if available
     StorageType = SDStorage;
+    
+    // We're going to store all system settings in EEPROM,
+    // so there's no need for storage offset for SD card
+    SettingsOffset = 0;
     
     // DEBUG
     Serial.println(F("SD"));
@@ -110,4 +114,43 @@ uint8_t initHiveStorage() {
     // Tell if we need to load settings (0 or 1)
     return initResult - 1;
   }
+}
+
+uint8_t loadSystemSettings() {
+  // Check if there are some settings stored in EEPROM
+  if (initEEPROMStorage() > 0) {
+    // Store current storage type
+    // and override it temporarily to read settings from EEPROM
+    uint8_t oldStorageType = StorageType;
+    StorageType = EEPROMStorage;
+    
+    // Skip the first "check" byte and read settings
+    // All settings are meant to be global variables
+    for (int i = 1; i < 4; i++) {
+      readStorage(i, hivemac[i+2]);
+    }
+    
+    // Restore original storage type
+    StorageType = oldStorageType; 
+    return 1;
+  } else {
+    return 0;
+  } 
+}
+
+void saveSystemSettings() {
+  uint8_t oldStorageType = StorageType;
+  StorageType = EEPROMStorage;
+
+  // Write a "check" byte first
+  // to indicate we have some settings stored in EEPROM
+  writeStorage(0, StorageCheckByte);
+  
+  for (int i = 1; i < 4; i++) {
+    writeStorage(i, hivemac[i+2]);
+    // DEBUG
+    Serial.println("Save system settings");
+  }
+  
+  StorageType = oldStorageType;
 }

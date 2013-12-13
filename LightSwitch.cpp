@@ -21,6 +21,7 @@ LightSwitch::LightSwitch(AppContext *context, const byte zone, byte moduleId, in
   _previousLightState = 0;
   _moduleState = 1;
   _lightMode = 0;
+  _switchCount = 0;
   
   // DEBUG
   Serial.println(F("Init LightSwitch"));
@@ -81,6 +82,9 @@ void LightSwitch::_saveSettings() {
   settings.lightMode = _lightMode;
   settings.moduleState = _moduleState;
   writeStorage(_storagePointer, settings);
+  
+  //DEBUG
+  Serial.println("Save module settings");
 }
 
 byte LightSwitch::_readSwitchState () {
@@ -252,6 +256,7 @@ void LightSwitch::turnModuleOff() {
     digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
     _moduleState = false;
     _stateChanged = true;
+    _saveSettings();
   }
 }
 
@@ -268,46 +273,65 @@ void LightSwitch::turnModuleOn() {
 
     _moduleState = true;
     _stateChanged = true;
+    _saveSettings();
   }
 }
 
 void LightSwitch::loopDo() {
+  // If the module is on now
   if (_moduleState) {
-    if (_lightMode == 1 && (_previousLightState == 0)) {  // If there's a manual "on" override
+    // If the module is in the override mode, user can bring it back
+    // to the auto mode by double-flipping the wall switch.
+    // So we first check if we have a double flip.
+    if (_switchCount >= 2) {
+      // Set module mode to auto
+      _lightMode = 0;
+      _turnLightAuto();
+      _switchCount = 0;
+    } else if (_lightMode == 1 && _previousLightState == 0) {
+      // If we have manual "on" override mode
       digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON);
       _previousLightState = 1;
-    }
-    
-    if (_lightMode == 2 && (_previousLightState == 1)) { // If there's a manual "off" override
+    } else if (_lightMode == 2 && _previousLightState == 1) {
+      // If we have manual "off" override mode
       digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
       _previousLightState = 0;
     }
     
-    if (_lightMode == 0) {
-      _switchState = _readSwitchState();
+    // Let's debounce the switch
+    
+    _switchState = _readSwitchState();
 
-      if (_previousSwitchState != _switchState) {
-        _debounceCounter = millis();
-        _previousSwitchState = _switchState;
-      }
+    if (_previousSwitchState != _switchState) {
+      _debounceCounter = millis();
+      _previousSwitchState = _switchState;
+    }
+    
+    if ((_debounceCounter > 0) && (millis() - _debounceCounter) > _debounceTime) {
+      // we reach here if the switch is stable for the debounce time
+      _debounceCounter = 0;
       
-      if ((_debounceCounter > 0) && (millis() - _debounceCounter) > _debounceTime) { // we reach here if the switch is stable for the debounce time
-        _debounceCounter = 0;
-
-        if (_switchState != _previousLightState) { 
+      if (_switchState != _previousLightState) {
+        if (_lightMode >= 1) {
+          // If there's a manual override of whatever kind
+          // count switch flips while in override mode
+           _switchCount++;
+        }
+        // If we are in auto switching mode
+        if (_lightMode == 0) {
           // switch the light if previous light state differs and switch is debounced
           _switchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
           
           _previousLightState = _readLightState();
-
+  
           // Notify remote server
-          _pushNotify();
+          //_pushNotify();
           _stateChanged = true;
+          _switchCount = 0;
         }
-        // end switch after debounce
       }
-      // end check if debounced
+      // end switch after debounce
     }
-    // end lightMode == auto
+    // end check if debounced
   }
 }
