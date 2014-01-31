@@ -161,7 +161,6 @@ void LightSwitch::getJSONSettings() {
     if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {    
       
       // TODO: Add prefixes to param names to mark readonly fields
-      aJson.addNumberToObject(moduleItem, "id", _moduleId);
       aJson.addStringToObject(moduleItem, "moduleType", _moduleType);
       aJson.addNumberToObject(moduleItem, "moduleState", _moduleState);
       aJson.addNumberToObject(moduleItem, "zoneId", _moduleZone);
@@ -325,7 +324,7 @@ void LightSwitch::loopDo() {
           _previousLightState = _readLightState();
   
           // Notify remote server
-          //_pushNotify();
+          _pushNotify();
           _stateChanged = true;
           _switchCount = 0;
         }

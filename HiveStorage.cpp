@@ -11,9 +11,7 @@ uint8_t StorageType = EEPROMStorage;
 //  2 if storage is available and filled
 uint8_t initSDStorage() {
   uint8_t storageResult = 0;
-  Sd2Card card;
   File sdFile;
-  char buffer[16];
 
   useDevice(DeviceIdSD);
   
@@ -21,40 +19,31 @@ uint8_t initSDStorage() {
   Serial.print("SD CS pin: ");
   Serial.println(DevicesCSPins[DeviceIdSD]);
 
-/*  if (!card.init(SPI_HALF_SPEED, DevicesCSPins[DeviceIdSD])) {
-    // DEBUG
-    Serial.println(F("SD init failed"));
-    return 0;
-  }
-
-  if (!volume.init(card)) {
-    // DEBUG
-    Serial.println(F("SD volume init failed"));
-    return 0;
-  }*/
-
   if (!SD.begin(DevicesCSPins[DeviceIdSD])) {
     Serial.println("Card init failed, or not present");
     // don't do anything more:
     return 0;
   }
 
-  strncpy(buffer, StorageFileName, sizeof(buffer));
-
-  if (SD.exists(buffer)) {
+  if (SD.exists(StorageFileName)) {
     // DEBUG
     Serial.println("Found settings file");
 
-    File sdFile = SD.open(buffer, FILE_READ);
+    File sdFile = SD.open(StorageFileName, FILE_READ);
     
     if (sdFile && sdFile.size() > 0) {
       // DEBUG
       Serial.println("File size > 0");
+      sdFile.close();
 
       storageResult = 2;
     } else {
       // DEBUG
       Serial.println("File is empty");
+      
+      if (sdFile) {
+        sdFile.close();
+      }
 
       storageResult = 1;
     }

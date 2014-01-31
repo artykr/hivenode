@@ -18,6 +18,8 @@
 
 // Don't waste SRAM for a default Webduino favicon
 #define WEBDUINO_FAVICON_DATA ""
+// Override Webduino default fail message
+#define WEBDUINO_FAIL_MESSAGE "<h1>Request Failed</h1>"
 
 char requestBuffer[RestRequestLength];
 int requestLen = RestRequestLength;
@@ -52,17 +54,21 @@ AppContext context(&moduleCollection, &pushNotify);
 boolean pushNotify(byte moduleId) {
   // We'll set it to true if a server has discovered our node
   boolean isDiscovered = false;
+  
+  // DEBUG
   char host[CommonBufferLength];
+  
   char buffer[CommonBufferLength];
 
   // Select SPI slave device - Ethernet
   useDevice(DeviceIdEthernet);
   
+  // DEBUG
+  Serial.println("Start pushing");
+
   // Create an object for making HTTP requests
   EthernetClient client;
-  
-  aJsonObject *response;
-  
+    
   if (webServerActive) {
     // If we have a domain, connect with it
     if ((clientDomain != NULL) && (strlen(clientDomain) > 0)) {
@@ -77,19 +83,27 @@ boolean pushNotify(byte moduleId) {
     } else {
       // If we have ip address only connect with it
       if(clientIPAddress[0] > 0) {
-        isDiscovered = true;
-        client.connect(clientIPAddress, 80);
 
+        isDiscovered = true;
+
+        // DEBUG
         for (int i = 0; i < 4; i++) {
           itoa(clientIPAddress[i], buffer, 10);
           strncat(host, buffer, strlen(buffer));
           if (i < 3)
             strncat(host, ".", 1);
         }
+        Serial.print(F("Push IP found: "));
+        Serial.println(host);
+
+        client.connect(clientIPAddress, 8080);
       }
     }
     
-    if (isDiscovered && client.connected()) {
+    if (isDiscovered && client.connected()) { 
+      //DEBUG
+      Serial.println(F("Connected to server"));
+
       // Call remote URL with moduleId attached
       // TODO: use no-cost stream operator for printing to client
       
@@ -103,33 +117,26 @@ boolean pushNotify(byte moduleId) {
       client.print(F("/"));
       client.print(moduleId);
       client.println(F(" HTTP/1.0"));
+      client.println();
       
-      client.print(F("Host: "));
-      client.println(host);
- 
-      client.println(F("Connection: close\r\n"));
-      
-      if (client.connected() && client.available()) {
-        // Read JSON response from remote
+      if (client.connected()) {
+        if (client.find("success")) {
+          // DEBUG
+          Serial.println("Success");
 
-        //char **jsonFilter = (char *[]){ "response", NULL };
-        aJsonClientStream jsonStream(&client);
-        response = aJson.parse(&jsonStream);
-        // Response structure:
-        // "response" : "success"
-        // "response" : "error"
-        
-        response = aJson.getObjectItem(response, "response");
-        
-        if (strcmp(response->valuestring, "success") == 0) {
-          aJson.deleteItem(response);
+          client.stop();
           return true;
+
         }
       }
     }
+
+    client.stop();
   }
   
-  aJson.deleteItem(response);
+  // DEBUG
+  Serial.println("Server returned no success");
+  
   return false;
 }
 
@@ -178,6 +185,12 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, long *mod
       // TODO: get aJson filter from module and apply it here
 
       aJsonObject *newModuleItem = aJson.parse(&jsonStream);
+
+      // DEBUG
+      Serial.print(F("Received data: "));
+      char *json1 = aJson.print(newModuleItem);
+      Serial.println(json1);
+      free(json1);
 
       // Set the parsed settings
       if (sensorModuleArray[i]->setJSONSettings(newModuleItem)) {
@@ -310,6 +323,12 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
 
     clientInfo = aJson.parse(&jsonStream);
     
+    // DEBUG
+    Serial.print(F("Domain and url from server: "));
+    char *json = aJson.print(clientInfo);
+    Serial.println(json);
+    free(json);
+
     // Discover request structure
     // JSON object with fields:
     // domain - string, for POST request easy building (32 chars max)
@@ -319,6 +338,7 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     
     // Get remote domain from json
     infoItem = aJson.getObjectItem(clientInfo, "domain");
+
     if (infoItem && (infoItem->type == aJson_String)) {
       strncpy(clientDomain, infoItem->valuestring, sizeof(clientDomain) - 1);
 
@@ -341,21 +361,19 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     }
     
     infoItem = aJson.getObjectItem(clientInfo, "ip");
+
     if (infoItem) {
       infoItem = infoItem->child;
     
-      while (infoItem && (i < 3)) {
+      while (infoItem && (i < 4)) {
         if (infoItem->type == aJson_Int) {
           clientIPAddress[i] = infoItem->valueint;
         }
         infoItem = infoItem->next;
         i++;
       }
-
-      aJson.deleteItem(clientInfo);
-      aJson.deleteItem(infoItem);
     }
-    
+
     // TODO: validate the whole structure
     server.httpSuccess("application/json");
     
@@ -365,8 +383,15 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     aJson.addItemToObject(infoItem, "modulesCount", aJson.createItem(modulesCount));
     // Output response and delete aJson object
     aJson.print(infoItem, &jsonStream);
+
     aJson.deleteItem(infoItem);
+    aJson.deleteItem(clientInfo);
+
+    // DEBUG
+    Serial.print(F("Free memory after discover: "));
+    Serial.println(DEBUG_memoryFree());
     
+    return;
   }
   
   server.httpFail();
@@ -376,6 +401,7 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
 // TODO: Check whether custom implementation is really needed
 void webFailureCommand(WebServer &server, WebServer::ConnectionType type, char *url_tail, bool tail_complete) {
   server.httpFail();
+  server.print(url_tail);
   return;
 }
 
@@ -399,10 +425,10 @@ boolean setupServer() {
     Serial.print(F("IP address: "));
     Serial.println(nodeIPAddress);
 
-    nodeWebServer.begin();
-    nodeWebServer.setUrlPathCommand(&dispatchRESTRequest);
     nodeWebServer.addCommand("discover", &webDiscoverCommand);
+    nodeWebServer.setUrlPathCommand(&dispatchRESTRequest);
     nodeWebServer.setFailureCommand(&webFailureCommand);
+    nodeWebServer.begin();
     
     return true;
   }
