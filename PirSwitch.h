@@ -1,15 +1,15 @@
 /*
-  LightSwitch.h - Library for driving a light with a wall-mounted switch
+  PirSwitch.h - Library for driving a light with a wall-mounted switch
   through a relay.
 */
   
-#ifndef LightSwitch_h
-#define LightSwitch_h
-#define LIGHTSWITCH_MODULE_VERSION 1
+#ifndef PirSwitch_h
+#define PirSwitch_h
+#define PIRSWITCH_MODULE_VERSION 1
 
 // TODO: change to const
-#define LIGHTSWITCH_RELAY_ON 0
-#define LIGHTSWITCH_RELAY_OFF 1
+#define SWITCH_RELAY_ON 0
+#define SWITCH_RELAY_OFF 1
 
 // TODO: define STATE_ON 1 and STATE_OFF 0
 // to use when reading and comparing light and switch state
@@ -19,10 +19,10 @@
 #include "aJson.h"
 #include "AppContext.h"
     
-class LightSwitch : public SensorModule
+class PirSwitch : public SensorModule
 {
   public:
-    LightSwitch(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings = true, int8_t switchPin = -1, int8_t lightPin = -1);
+    PirSwitch(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings = true, int8_t switchPin = -1, int8_t lightPin = -1);
     // We need a context structure to get global properties, i.e. method for push notifications on a switch change etc.
     // We pass loadSettings flag = 0 in case if we are sure that there are no settings in EEPROM yet
     
@@ -34,31 +34,28 @@ class LightSwitch : public SensorModule
 
     void turnModuleOff();        // Turn module off
     void turnModuleOn();         // Turn module on
-    
-    // DEBUG
-    int DEBUG_memoryFree();
 
   private:
-    // settings structure for use with write/readAnything routine
+    // settings structure for use with write/readStorage routine
     typedef struct config_t
     {
       int8_t lightMode;           // Light switching mode: 0 - auto, 1 - manual on, 2 - manual off
-      int8_t moduleState;         // int8 used to store invalid values for validation purposes
+      int8_t pirDelay;            // Delay between PIR sensor state change and relay switch (in seconds)
+      int8_t moduleState;         // Is module on or off
     };
     
     int8_t _lightMode;            // Light switching mode: 0 - auto, 1 - manual on, 2 - manual off
-    int8_t _switchPin;            // Pin number for the switch
-    int8_t _lightPin;             // Pin number for the light control (relay)
+    int8_t _pirDelay;             // Delay between PIR sensor state change and relay switch (in seconds)
+    int8_t _switchPin;            // Pin number for the PIR sensor
+    int8_t _lightPin;             // Pin number for the relay
+    unsigned long _delayCounter;
     
     static const char _moduleType[12];   // Module type string
 
-    boolean _stateChanged;        // Set to TRUE if anything (settings) - to prevent filling settings in again e.g. when the server asks for current settings
-    byte _debounceTime;           // Debounce time (ms)
-    long _debounceCounter; 
-    boolean _previousSwitchState; // Save previous state for debounce to work
+    boolean _stateChanged;        // Set to TRUE if anything (settings) changes - to prevent filling settings in again e.g. when the server asks for current settings
     boolean _switchState;         // Current switch state. 1 = on, 0 = off relay-aware state
-    boolean _previousLightState;  // Save previous light state to switch only if changed
-    uint8_t _switchCount;
+    boolean _previousLightState;  // Save previous light state to switch light only if changed
+    boolean _previousSwitchState; // Helper for holding switch state
     AppContext *_context;         // Pointer to the AppContext object
     
     void _saveSettings();         // Puts settings into storage

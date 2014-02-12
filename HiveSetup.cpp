@@ -1,12 +1,21 @@
 #include "HiveSetup.h"
 #include "LightSwitch.h"
+#include "PirSwitch.h"
 #include "HiveStorage.h"
+
+#ifdef HIVE_STATIC_IP
+IPAddress nodeIPAddress(192,168,1,60);
+#endif
+
+#ifndef HIVE_STATIC_IP
+IPAddress nodeIPAddress;
+#endif
 
 // Initialize global structures
 SensorModule *sensorModuleArray[modulesCount];
 
 // Settings storage file name (for SD card storage)
-char StorageFileName[16] = "settings.txt"; // 15 characters long maximum
+char StorageFileName[16] = "settings.bin"; // 12 characters long maximum
 
 uint8_t SettingsOffset = 4;
 
@@ -27,9 +36,15 @@ void initModules(AppContext *context, boolean loadSettings) {
 
   // Create objects for all sensor modules and init each one
   sensorModuleArray[0] = new LightSwitch(context, hallZone, 1, lastStoragePointer, loadSettings, 8, 4);
- 
   lastStoragePointer += sensorModuleArray[0]->getStorageSize();
   
   // DEBUG
-  Serial.println(F("Set up modules array"));
+  Serial.print(F("Storage pointer: "));
+  Serial.println(lastStoragePointer);
+
+  sensorModuleArray[1] = new PirSwitch(context, kitchenZone, 2, lastStoragePointer, loadSettings, 11, 5);
+  lastStoragePointer += sensorModuleArray[1]->getStorageSize();
+
+  // DEBUG
+  Serial.println(F("Modules array setup finished"));
 }

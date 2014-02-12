@@ -19,10 +19,15 @@ void useDevice(uint8_t deviceId) {
     // then enable device we need
     digitalWrite(DevicesCSPins[onIndex], LOW);
   }
+
 }
 
 void initPins() {
   uint8_t deviceCount = sizeof(DevicesCSPins) / sizeof(*DevicesCSPins);
+  
+  // DEBUG
+  Serial.print("Device count: ");
+  Serial.println(deviceCount);
   
   for (int i = 0; i < deviceCount; i++) {
     // Set all CS pins to output mode so the slave selection works

@@ -1,14 +1,13 @@
 #include "Arduino.h"
 #include "HiveStorage.h"
-#include "LightSwitch.h"
+#include "PirSwitch.h"
 #include "SensorModule.h"
 #include "aJson.h"
 #include "AppContext.h"
-#include "MemoryFree.h"
 
-const char LightSwitch::_moduleType[12] = "LightSwitch";
+const char PirSwitch::_moduleType[12] = "PirSwitch";
 
-LightSwitch::LightSwitch(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings, int8_t switchPin, int8_t lightPin) : 
+PirSwitch::PirSwitch(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings, int8_t switchPin, int8_t lightPin) : 
   SensorModule(storagePointer, moduleId, zone),
   _switchPin(switchPin),
   _lightPin(lightPin),
@@ -18,7 +17,7 @@ LightSwitch::LightSwitch(AppContext *context, const byte zone, byte moduleId, in
   _resetSettings();
   
   // DEBUG
-  Serial.println(F("Init LightSwitch"));
+  Serial.println(F("Init PirSwitch"));
 
   pinMode(_switchPin, INPUT);
   
@@ -32,22 +31,24 @@ LightSwitch::LightSwitch(AppContext *context, const byte zone, byte moduleId, in
   pinMode(_lightPin, OUTPUT);
   _previousSwitchState = _readSwitchState();
 
+ 
+
   if (!_moduleState) {
-    digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+    digitalWrite(_lightPin, SWITCH_RELAY_OFF);
   } else {
   
     switch (_lightMode) {
       case 1:
         // If there's a manual "on" override
-        digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON);
+        digitalWrite(_lightPin, SWITCH_RELAY_ON);
         break;
       case 2:
         // If there's a manual "off" override
-        digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+        digitalWrite(_lightPin, SWITCH_RELAY_OFF);
         break;
       case 0:
         // If there's auto switch mode
-        _previousSwitchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+        _previousSwitchState ? digitalWrite(_lightPin, SWITCH_RELAY_ON) : digitalWrite(_lightPin, SWITCH_RELAY_OFF);
         break;
     }
     
@@ -55,24 +56,21 @@ LightSwitch::LightSwitch(AppContext *context, const byte zone, byte moduleId, in
   }
 
   // DEBUG
-  Serial.println(F("Finished LightSwitch init"));
+  Serial.println(F("Finished PirSwitch init"));
 }
 
-void LightSwitch::_resetSettings() {
-  _debounceTime = 20;
-  _debounceCounter = 0;
-  _previousSwitchState = 0;
-  _previousLightState = 0;
-  _moduleState = 1;
-  _lightMode = 0;
-  _switchCount = 0;
-}
-
-byte LightSwitch::getStorageSize() {
+byte PirSwitch::getStorageSize () {
   return sizeof(config_t);
 }
 
-void LightSwitch::_loadSettings() {
+void PirSwitch::_resetSettings() {
+  _pirDelay = 10;
+  _previousLightState = 0;
+  _moduleState = 1;
+  _lightMode = 0;
+}
+
+void PirSwitch::_loadSettings() {
   boolean isLoaded = false;
 
   //DEBUG
@@ -90,6 +88,7 @@ void LightSwitch::_loadSettings() {
   if (isLoaded) {
     _lightMode = settings.lightMode;
     _moduleState = settings.moduleState;
+    _pirDelay = settings.pirDelay;
   } else {
     // If unable to read then reset settings to default
     // and try write them back to fix the storage
@@ -101,35 +100,36 @@ void LightSwitch::_loadSettings() {
   _stateChanged = true;
 }
 
-void LightSwitch::_saveSettings() {
-  //DEBUG
-  Serial.println(F("Saving module settings"));
 
+void PirSwitch::_saveSettings() {
   config_t settings;
-
   settings.lightMode = _lightMode;
   settings.moduleState = _moduleState;
+  settings.pirDelay = _pirDelay;
   writeStorage(_storagePointer, settings);
+  
+  //DEBUG
+  Serial.println("Save module settings");
 }
 
-byte LightSwitch::_readSwitchState () {
+byte PirSwitch::_readSwitchState () {
   return digitalRead(_switchPin);
 }
 
-byte LightSwitch::_readLightState () {
+byte PirSwitch::_readLightState () {
   
   // Relay on/off states may be inversed depending on physical connections
   // So we take it into account and return simple values
   // 1 if the relay is on, 0 - if it's off
 
-  if (digitalRead(_lightPin) == LIGHTSWITCH_RELAY_ON) {
+  if (digitalRead(_lightPin) == SWITCH_RELAY_ON) {
     return 1;
   } else {
     return 0;
   }
 }
 
-void LightSwitch::_turnLightOff() {
+void PirSwitch::_turnLightOff() {
   if (_lightMode != 2) {
     _lightMode = 2;
 
@@ -140,7 +140,7 @@ void LightSwitch::_turnLightOff() {
   }
 }
 
-void LightSwitch::_turnLightOn() {
+void PirSwitch::_turnLightOn() {
   if (_lightMode != 1) {
     _lightMode = 1;
 
@@ -151,7 +151,7 @@ void LightSwitch::_turnLightOn() {
   }
 }
 
-void LightSwitch::_turnLightAuto() {
+void PirSwitch::_turnLightAuto() {
   _lightMode = 0;
 
   // Check if the light state differs from switch state
@@ -167,11 +167,11 @@ void LightSwitch::_turnLightAuto() {
   _saveSettings();
 }
 
-void LightSwitch::_pushNotify() {
+void PirSwitch::_pushNotify() {
   _context->pushNotify(_moduleId);
 }
 
-void LightSwitch::getJSONSettings() {
+void PirSwitch::getJSONSettings() {
   // generate json settings only if something's changed
   // TODO: mark properties with read-only and read-write types
 
@@ -193,6 +193,8 @@ void LightSwitch::getJSONSettings() {
       aJson.addNumberToObject(moduleItem, "lightState", _readLightState());
       aJson.addNumberToObject(moduleItem, "lightMode", _lightMode);
 
+      aJson.addNumberToObject(moduleItem, "pirDelay", _pirDelay);
+
     } else {
       // If we have an already initialized settings JSON structure
       // then just replace the values
@@ -208,6 +210,9 @@ void LightSwitch::getJSONSettings() {
 
       moduleItemProperty = aJson.getObjectItem(moduleItem, "lightMode");
       moduleItemProperty->valueint = _lightMode;
+
+      moduleItemProperty = aJson.getObjectItem(moduleItem, "pirDelay");
+      moduleItemProperty->valueint = _pirDelay;
     }
 
     _stateChanged = false;
@@ -216,7 +221,7 @@ void LightSwitch::getJSONSettings() {
 }
 
 // TODO: if error, return settings object with error item
-boolean LightSwitch::_validateSettings(config_t *settings) {
+boolean PirSwitch::_validateSettings(config_t *settings) {
   if ((settings->lightMode < 0) || (settings->lightMode > 2)) {
     return false;
   }
@@ -224,16 +229,23 @@ boolean LightSwitch::_validateSettings(config_t *settings) {
   if ((settings->moduleState < 0) || (settings->moduleState > 1)) {
     return false;
   }
+
+  // Check turn off delay after PIR switch is activated (in milliseconds)
+  // Must be between 0 and 24 hours
+  if ((settings->pirDelay < 0) || (settings->pirDelay > 255)) {
+    return false;
+  }
   
   return true;
 }
 
-boolean LightSwitch::setJSONSettings(aJsonObject *moduleItem) {
+boolean PirSwitch::setJSONSettings(aJsonObject *moduleItem) {
   config_t settings;
   aJsonObject *moduleItemProperty;
   // Initialiaze to invalid values so the validation works
   int8_t newModuleState = -1;
   int8_t newLightMode = -1;
+  int8_t newPirDelay = -1;
   
   // Check for module type first
   moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
@@ -246,9 +258,13 @@ boolean LightSwitch::setJSONSettings(aJsonObject *moduleItem) {
   
   moduleItemProperty = aJson.getObjectItem(moduleItem,  "lightMode");
   newLightMode = moduleItemProperty->valueint;
+
+  moduleItemProperty = aJson.getObjectItem(moduleItem,  "pirDelay");
+  newPirDelay = moduleItemProperty->valueint;
   
   settings.lightMode = newLightMode;
   settings.moduleState = newModuleState;
+  settings.pirDelay = newPirDelay;
   
   if (!_validateSettings(&settings)) {
     return false;
@@ -275,24 +291,24 @@ boolean LightSwitch::setJSONSettings(aJsonObject *moduleItem) {
   return true;
 }
 
-void LightSwitch::turnModuleOff() {
+void PirSwitch::turnModuleOff() {
   if (_moduleState) {
-    digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+    digitalWrite(_lightPin, SWITCH_RELAY_OFF);
     _moduleState = false;
     _stateChanged = true;
     _saveSettings();
   }
 }
 
-void LightSwitch::turnModuleOn() {
+void PirSwitch::turnModuleOn() {
   if (!_moduleState) {
     _switchState = digitalRead(_switchPin);
     
     // Check current operation mode (auto or manual override)
     if (_lightMode == 0) {
-      _switchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+      _switchState ? digitalWrite(_lightPin, SWITCH_RELAY_ON) : digitalWrite(_lightPin, SWITCH_RELAY_OFF);
     } else {
-      _lightMode == 1 ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+      _lightMode == 1 ? digitalWrite(_lightPin, SWITCH_RELAY_ON) : digitalWrite(_lightPin, SWITCH_RELAY_OFF);
     }
 
     _moduleState = true;
@@ -301,61 +317,47 @@ void LightSwitch::turnModuleOn() {
   }
 }
 
-void LightSwitch::loopDo() {
+void PirSwitch::loopDo() {
   // If the module is on now
   if (_moduleState) {
-    // If the module is in the override mode, user can bring it back
-    // to the auto mode by double-flipping the wall switch.
-    // So we first check if we have a double flip.
-    if (_switchCount >= 2) {
-      // Set module mode to auto
-      _lightMode = 0;
-      _turnLightAuto();
-      _switchCount = 0;
-    } else if (_lightMode == 1 && _previousLightState == 0) {
+
+    if (_lightMode == 1 && _previousLightState == 0) {
       // If we have manual "on" override mode
-      digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON);
+      digitalWrite(_lightPin, SWITCH_RELAY_ON);
       _previousLightState = 1;
     } else if (_lightMode == 2 && _previousLightState == 1) {
       // If we have manual "off" override mode
-      digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
+      digitalWrite(_lightPin, SWITCH_RELAY_OFF);
       _previousLightState = 0;
     }
-    
-    // Let's debounce the switch
-    
+        
     _switchState = _readSwitchState();
 
-    if (_previousSwitchState != _switchState) {
-      _debounceCounter = millis();
-      _previousSwitchState = _switchState;
-    }
-    
-    if ((_debounceCounter > 0) && (millis() - _debounceCounter) > _debounceTime) {
-      // we reach here if the switch is stable for the debounce time
-      _debounceCounter = 0;
-      
-      if (_switchState != _previousLightState) {
-        if (_lightMode >= 1) {
-          // If there's a manual override of whatever kind
-          // count switch flips while in override mode
-           _switchCount++;
-        }
-        // If we are in auto switching mode
-        if (_lightMode == 0) {
-          // switch the light if previous light state differs and switch is debounced
-          _switchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
-          
-          _previousLightState = _readLightState();
-  
-          // Notify remote server
-          _pushNotify();
-          _stateChanged = true;
-          _switchCount = 0;
-        }
+    if (_switchState == HIGH) {
+      // If PIR switch is activated
+
+      if (!_previousLightState) {
+        digitalWrite(_lightPin, SWITCH_RELAY_ON);
+        _previousLightState = _switchState;
+        _stateChanged = true;
+        _pushNotify();
       }
-      // end switch after debounce
+
+      // We start delay countdouwn only when switch is off
+      // Otherwise we update counter value
+      _delayCounter = millis();
+    } else {
+      // If PIR switch is off
+      // Check counter value vs current time
+      // _pirDelay value is in seconds so multiply it by 1000
+      if ((abs(millis() - _delayCounter) >= _pirDelay * 1000) && (_previousLightState == HIGH)) {
+        digitalWrite(_lightPin, SWITCH_RELAY_OFF);
+        _previousLightState = _switchState;
+        _delayCounter = 0;
+        _stateChanged = true;
+        _pushNotify();
+      }
     }
-    // end check if debounced
+
   }
 }

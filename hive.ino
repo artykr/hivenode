@@ -1,43 +1,40 @@
 #include "SensorModule.h"
-#include "aJSON.h"
+#include "Arduino.h"
 #include "SPI.h"
-#include "Ethernet.h"
-
-// Turn on/off WebServer debugging
-#define WEBDUINO_SERIAL_DEBUGGING 0
-
-#include "WebServer.h"
-#include "WebStream.h"
-#include "AppContext.h"
-#include "MemoryFree.h"
-#include "HiveSetup.h"
-#include "EEPROM.h"
 #include "SD.h"
-#include "HiveStorage.h"
-#include "DeviceDispatch.h"
+#include "Ethernet.h"
 
 // Don't waste SRAM for a default Webduino favicon
 #define WEBDUINO_FAVICON_DATA ""
+
 // Override Webduino default fail message
 #define WEBDUINO_FAIL_MESSAGE "<h1>Request Failed</h1>"
+
+#include "WebServer.h"
+#include "WebStream.h"
+#include "aJSON.h"
+#include "EEPROM.h"
+#include "MemoryFree.h"
+#include "HiveSetup.h"
+#include "HiveStorage.h"
+#include "DeviceDispatch.h"
 
 char requestBuffer[RestRequestLength];
 int requestLen = RestRequestLength;
 
-// Store IP from DHCP request
-// TODO: add a switch to a static ip address as a fallback
-IPAddress nodeIPAddress;
-
-// Store remote IP
+// Store remote IP for push notifications
 IPAddress clientIPAddress(0, 0, 0, 0);
 
 const uint8_t CommonBufferLength = 32;
 
-// Store remote domain name for push notification
+// Store remote domain name for push notifications
 char clientDomain[CommonBufferLength];
 
-// Store remote URL for push notification
+// Store remote URL for push notifications
 char clientURL[CommonBufferLength];
+
+// Store remote port
+int16_t clientPort = 80;
 
 // Create a WebServer instance
 WebServer nodeWebServer("", 80);
@@ -48,9 +45,8 @@ boolean webServerActive = false;
 aJsonObject *moduleCollection;
 aJsonObject *moduleItem;
 
-AppContext context(&moduleCollection, &pushNotify);                     
+AppContext context(&moduleCollection, &pushNotify);
 
-// TODO: Pass event object here (if it makes sense)
 boolean pushNotify(byte moduleId) {
   // We'll set it to true if a server has discovered our node
   boolean isDiscovered = false;
@@ -62,9 +58,6 @@ boolean pushNotify(byte moduleId) {
 
   // Select SPI slave device - Ethernet
   useDevice(DeviceIdEthernet);
-  
-  // DEBUG
-  Serial.println("Start pushing");
 
   // Create an object for making HTTP requests
   EthernetClient client;
@@ -73,7 +66,7 @@ boolean pushNotify(byte moduleId) {
     // If we have a domain, connect with it
     if ((clientDomain != NULL) && (strlen(clientDomain) > 0)) {
       isDiscovered = true;
-      client.connect(clientDomain, 80);
+      client.connect(clientDomain, clientPort);
       strncpy(host, clientDomain, sizeof(host) - 1);
       // Null-terminate the string just in case
       if (sizeof(host) > 0)
@@ -96,7 +89,7 @@ boolean pushNotify(byte moduleId) {
         Serial.print(F("Push IP found: "));
         Serial.println(host);
 
-        client.connect(clientIPAddress, 8080);
+        client.connect(clientIPAddress, clientPort);
       }
     }
     
@@ -134,9 +127,6 @@ boolean pushNotify(byte moduleId) {
     client.stop();
   }
   
-  // DEBUG
-  Serial.println("Server returned no success");
-  
   return false;
 }
 
@@ -170,10 +160,6 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, long *mod
       sensorModuleArray[i]->getJSONSettings();     
       moduleItem = aJson.getArrayItem(moduleCollection, i);
       aJson.print(moduleItem, &jsonStream);
-      
-      // DEBUG
-      Serial.print(F("Free memory after item call: "));
-      Serial.println(DEBUG_memoryFree());
 
       break;
     case WebServer::PUT:
@@ -374,6 +360,12 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
       }
     }
 
+    infoItem = aJson.getObjectItem(clientInfo, "port");
+
+    if (infoItem && (infoItem->type == aJson_Int)) {
+      clientPort = infoItem->valueint;
+    }
+
     // TODO: validate the whole structure
     server.httpSuccess("application/json");
     
@@ -386,66 +378,11 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
 
     aJson.deleteItem(infoItem);
     aJson.deleteItem(clientInfo);
-
-    // DEBUG
-    Serial.print(F("Free memory after discover: "));
-    Serial.println(DEBUG_memoryFree());
     
     return;
   }
   
   server.httpFail();
-}
-
-// General failure command
-// TODO: Check whether custom implementation is really needed
-void webFailureCommand(WebServer &server, WebServer::ConnectionType type, char *url_tail, bool tail_complete) {
-  server.httpFail();
-  server.print(url_tail);
-  return;
-}
-
-boolean setupServer() {
-  // DEBUG
-  Serial.println(F("Starting Ethernet..."));
-  
-  // Select Ethernet on SPI
-  useDevice(DeviceIdEthernet);
-  
-  if (Ethernet.begin(hivemac)) {
-    // Give Ethernet time to initialize
-    delay(2000);
-
-    // DEBUG
-    Serial.println(F("Ethernet started"));
-
-    nodeIPAddress = Ethernet.localIP();
-    
-    // DEBUG
-    Serial.print(F("IP address: "));
-    Serial.println(nodeIPAddress);
-
-    nodeWebServer.addCommand("discover", &webDiscoverCommand);
-    nodeWebServer.setUrlPathCommand(&dispatchRESTRequest);
-    nodeWebServer.setFailureCommand(&webFailureCommand);
-    nodeWebServer.begin();
-    
-    return true;
-  }
-  
-  // DEBUG
-  Serial.println(F("Failed to start Ethernet"));
-  
-  return false;
-}
-
-
-void addToJSONCollection(byte id) {
-  //aJsonObject *moduleItem;
-  moduleItem = aJson.createObject();
-  aJson.addItemToObject(moduleItem, "id", aJson.createItem(id));
-  aJson.addItemToArray(moduleCollection, moduleItem);
-
 }
 
 // Generate MAC address and store it in available storage
@@ -462,37 +399,95 @@ void setupMACAddress(boolean loadSettings) {
 
 }
 
+boolean setupServer() {
+  boolean ethernetEnabled = false;
 
-// Arduino setup routine
+  // DEBUG
+  Serial.println(F("Starting Ethernet..."));
+  
+  // Select Ethernet on SPI
+  useDevice(DeviceIdEthernet);
+  
+  // If we have a static IP
+#ifdef HIVE_STATIC_IP
+  Ethernet.begin(hivemac, nodeIPAddress);
+  ethernetEnabled = true;
+#endif
+
+#ifndef HIVE_STATIC_IP
+  if (Ethernet.begin(hivemac)) {
+    ethernetEnabled = true;
+  }
+#endif
+
+  if (ethernetEnabled) {
+    // Give Ethernet time to initialize
+    delay(1000);
+
+    // DEBUG
+    Serial.println(F("Ethernet started"));
+
+#ifndef HIVE_STATIC_IP
+    // Only get ID if received through DHCP
+    nodeIPAddress = Ethernet.localIP();
+#endif
+
+    // DEBUG
+    Serial.print(F("IP address: "));
+    Serial.println(nodeIPAddress);
+
+    nodeWebServer.addCommand("discover", &webDiscoverCommand);
+    //nodeWebServer.setUrlPathCommand(&dispatchRESTRequest);
+    //nodeWebServer.setFailureCommand(&webFailureCommand);
+    nodeWebServer.begin();
+    
+    return true;
+  }
+  
+  // DEBUG
+  Serial.println(F("Failed to start Ethernet"));
+  
+  return false;
+}
+
+void addToJSONCollection(byte id) {
+  //aJsonObject *moduleItem;
+  moduleItem = aJson.createObject();
+  aJson.addItemToObject(moduleItem, "id", aJson.createItem(id));
+  aJson.addItemToArray(moduleCollection, moduleItem);
+
+}
+
 void setup() {
   boolean systemSettingsLoaded = false;
   boolean moduleSettingsExist = false;
   
-  // DEBUG
-  Serial.begin(9600);
-  delay(2000);
-
-  Serial.print(F("Free memory on start: "));
-  Serial.println(DEBUG_memoryFree());
-  
-  // Load system settings if any
   systemSettingsLoaded = loadSystemSettings();
-  
+
   // Init SPI CS pins
   initPins();
-  
+
+  Serial.begin(9600);
+  delay(1000);
+
+  // DEBUG
+  Serial.print(F("Free memory on start: "));
+  Serial.println(freeMemory());
+
   // Init Ethernet first so it responds to
   // SPI slave select command
   setupMACAddress(systemSettingsLoaded);
   webServerActive = setupServer();
-  
+
+  useDevice(DeviceIdSD);
+
   // Init storage and check if there are some
   // modules settings stored
   moduleSettingsExist = initStorage();
-  
+
   // Define and init modules
   initModules(&context, moduleSettingsExist);
-  
+
   // Create and fill json structure for the REST interface
   moduleCollection = aJson.createArray();
   
@@ -510,38 +505,72 @@ void setup() {
   char *json = aJson.print(*context.moduleCollection);
   Serial.println(json);
   free(json);
-  
-  // DEBUG
-  Serial.print(F("Current collection: "));
-  char *json1 = aJson.print(moduleCollection);
-  Serial.println(json1);
-  free(json1);
 
-  // DEBUG
-  if (webServerActive) {
-    Serial.println(F("Web Server Started"));
-  }
+  //testSD();
   
-  // DEBUG
-  Serial.print(F("Free memory after setup: "));
-  Serial.println(DEBUG_memoryFree());
+}
+
+void testSD() {
+
+  File myFile;
+  char c;
+
+  if (SD.exists("test.txt")) {
+
+    // READ FROM FILE
+
+    Serial.println("File found. Try to read...");
+    myFile = SD.open("test.txt", FILE_READ);
+
+    if (myFile) {
+      while (myFile.available()) {
+            Serial.write(myFile.read());
+          }
+        } else {
+          Serial.println("Cannot open file");
+        }
+
+        myFile.close();
+
+        // WRITE TO FILE
+
+        Serial.println("Try to write");
+        myFile = SD.open("test.txt", FILE_WRITE);
+
+    if (myFile) { 
+      myFile.seek(0);
+      for (int i = 0; i < 10; i++) {
+        myFile.write("A");
+      }
+    } else {
+      Serial.println("Cannot open file");
+    }
+
+    myFile.close();
+
+  } else {
+
+    // CREATE A FILE
+
+    Serial.println("File not found. Try to create...");
+    myFile = SD.open("test.txt", FILE_WRITE);
+
+    if (myFile) {
+      myFile.seek(0);
+      for (int i = 0; i < 10; i++) {
+        myFile.write("A");
+      }
+    } else {
+      Serial.println("Cannot open file");
+    }
+
+    myFile.close();
+  } 
 }
 
 void loop() {
-
   // Call each module loop method
   for(byte i = 0; i < modulesCount; i++) {
     sensorModuleArray[i]->loopDo();
   }
-
-  // Check for web server calls
-  if (webServerActive) {
-    useDevice(DeviceIdEthernet);
-    nodeWebServer.processConnection(requestBuffer, &requestLen);
-  }
-  
-}
-
-int DEBUG_memoryFree() {
-  return freeMemory();
 }

@@ -3,6 +3,14 @@
 
 #include "SensorModule.h"
 #include "AppContext.h"
+#include "Ethernet.h"
+
+// Uncomment to use static ip instead of DHCP
+#ifndef HIVE_STATIC_IP
+#define HIVE_STATIC_IP
+#endif
+
+extern IPAddress nodeIPAddress;
 
 // Stored at the first byte of EEPROM indicates that settings are already
 // written
@@ -17,7 +25,7 @@ const byte nodeId = 1;
 
 // Total number of modules on board
 // All the modules should be described in initModules()
-const byte modulesCount = 1;
+const byte modulesCount = 2;
 
 // Define zones in accordance with physical locations
 const byte hallZone = 1;

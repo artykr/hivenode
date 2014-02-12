@@ -22,7 +22,8 @@ uint8_t loadSystemSettings();
     
 template <class T> int writeStorage(int position, const T& value) {
   const byte *p = (const byte*)(const void*)&value;
-  unsigned int i;
+  int8_t i = 0;
+  File myFile;
   
   if (StorageType == EEPROMStorage) {
     Serial.print(F("Writing to EEPROM"));
@@ -39,24 +40,28 @@ template <class T> int writeStorage(int position, const T& value) {
     
     // Select slave SPI device
     useDevice(DeviceIdSD);
+
+    myFile = SD.open(StorageFileName, FILE_WRITE);
     
-    File sdFile = SD.open(StorageFileName, FILE_WRITE);
-    
-    if (sdFile) {
+    if (myFile) {
       // DEBUG
       Serial.println(F("Opened file for writing"));
 
-      if (sdFile.seek(position)) {
+      if (myFile.seek(position)) {
         for (i = 0; i < sizeof(value); i++)
-          sdFile.write(*p++);
+          myFile.write(*p++);
+      } else {
+        i = -1;
       }
       
-      sdFile.close();
+      myFile.close();
       return i;
       
     } else {
       // DEBUG
       Serial.println("Unable to open storage file fo writing");
+      
+      myFile.close();
 
       return -1;
     }
@@ -67,8 +72,9 @@ template <class T> int writeStorage(int position, const T& value) {
     
 template <class T> int readStorage(int position, T& value) {
   byte *p = (byte*)(void*)&value;
-  unsigned int i;
-    
+  int8_t i = 0;
+  File myFile;
+
   if (StorageType == EEPROMStorage) {
     for (i = 0; i < sizeof(value); i++)
       *p++ = EEPROM.read(position++);
@@ -82,21 +88,32 @@ template <class T> int readStorage(int position, T& value) {
 
     useDevice(DeviceIdSD);
     
-    File sdFile = SD.open(StorageFileName);
+    myFile = SD.open(StorageFileName);
     
-    if (sdFile) {
+    if (myFile) {
       
       // DEBUG
       Serial.println(F("File is open"));
 
-      if (sdFile.seek(position)) {
-        for (i = 0; i < sizeof(value); i++)
-          *p++ = sdFile.read();
+      if ((position + sizeof(value)) <= myFile.size()) {
+
+        if (myFile.seek(position)) {
+          for (i = 0; i < sizeof(value); i++)
+            *p++ = myFile.read();
+        }
+
+      } else {
+        i = -1;
+
+        // DEBUG
+        Serial.println(F("ERROR: Value position is beyond the file size"));
       }
       
-      sdFile.close();
+      myFile.close();
       return i;
     }
+
+    myFile.close();
   }
   
   return -1;   

@@ -11,44 +11,42 @@ uint8_t StorageType = EEPROMStorage;
 //  2 if storage is available and filled
 uint8_t initSDStorage() {
   uint8_t storageResult = 0;
-  File sdFile;
+  File myFile;
 
   useDevice(DeviceIdSD);
-  
-  // DEBUG
-  Serial.print("SD CS pin: ");
-  Serial.println(DevicesCSPins[DeviceIdSD]);
 
   if (!SD.begin(DevicesCSPins[DeviceIdSD])) {
-    Serial.println("Card init failed, or not present");
+
+    Serial.println(F("Card init failed, or not present"));
     // don't do anything more:
     return 0;
   }
 
   if (SD.exists(StorageFileName)) {
     // DEBUG
-    Serial.println("Found settings file");
+    Serial.println(F("Found settings file"));
 
-    File sdFile = SD.open(StorageFileName, FILE_READ);
+    //myFile = SD.open(StorageFileName, FILE_READ);
+    myFile = SD.open("settings.bin", FILE_READ);
     
-    if (sdFile && sdFile.size() > 0) {
+    if (myFile && (myFile.size() > 0)) {
       // DEBUG
-      Serial.println("File size > 0");
-      sdFile.close();
-
+      Serial.println(F("File size > 0"));
       storageResult = 2;
     } else {
       // DEBUG
-      Serial.println("File is empty");
-      
-      if (sdFile) {
-        sdFile.close();
-      }
-
+      Serial.println(F("File is empty"));
       storageResult = 1;
     }
+
+     myFile.close();
     
   } else {
+    // DEBUG
+    Serial.println(F("File is missing"));
+    //myFile = SD.open(StorageFileName, FILE_WRITE);
+    myFile = SD.open("settings.bin", FILE_WRITE);
+    myFile.close();
     storageResult = 1;
   }
   
