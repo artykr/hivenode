@@ -242,7 +242,7 @@ void dispatchRESTRequest(WebServer &server, WebServer::ConnectionType type,
     return;
   }
   
-  Serial.println(F("Processing web request..."));
+  Serial.println(F("Processing REST request..."));
 
   // RESTful interface structure:
   // /modules
@@ -260,7 +260,7 @@ void dispatchRESTRequest(WebServer &server, WebServer::ConnectionType type,
     if (url_path[1]) {
       // We use safe strtol instead of unsafe atoi at a cost
       // of moduleId being of type long
-      moduleId = strtol(url_path[1], NULL ,10);
+      moduleId = strtol(url_path[1], NULL, 10);
     }
     
     if (moduleId > 0) {
@@ -385,6 +385,40 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
   server.httpFail();
 }
 
+// Handle system status information request
+void webInfoCommand(WebServer &server, WebServer::ConnectionType type, char *url_tail, bool tail_complete) {
+  WebStream webStream(&server);
+  aJsonStream jsonStream(&webStream);
+  aJsonObject *infoItem;
+  
+  Serial.println(F("Processing info request..."));
+  
+  switch (type) {
+    case WebServer::HEAD:
+    {
+      server.httpSuccess();
+      break;
+    }
+    case WebServer::GET:
+    {
+      server.httpSuccess("application/json");
+      // Reload JSON structures for each module
+      
+      infoItem = aJson.createObject();
+      aJson.addItemToObject(infoItem, "memory", aJson.createItem(freeMemory()));
+      aJson.addItemToObject(infoItem, "storage", aJson.createItem(StorageType));
+
+      // Print out the info object
+      aJson.print(infoItem, &jsonStream);
+      aJson.deleteItem(infoItem);
+
+      break;
+    }
+    default:
+      server.httpFail();
+  }
+}
+
 // Generate MAC address and store it in available storage
 void setupMACAddress(boolean loadSettings) {
 
@@ -437,7 +471,8 @@ boolean setupServer() {
     Serial.println(nodeIPAddress);
 
     nodeWebServer.addCommand("discover", &webDiscoverCommand);
-    //nodeWebServer.setUrlPathCommand(&dispatchRESTRequest);
+    nodeWebServer.addCommand("info", &webInfoCommand);
+    nodeWebServer.setUrlPathCommand(&dispatchRESTRequest);
     //nodeWebServer.setFailureCommand(&webFailureCommand);
     nodeWebServer.begin();
     
@@ -505,72 +540,18 @@ void setup() {
   char *json = aJson.print(*context.moduleCollection);
   Serial.println(json);
   free(json);
-
-  //testSD();
   
-}
-
-void testSD() {
-
-  File myFile;
-  char c;
-
-  if (SD.exists("test.txt")) {
-
-    // READ FROM FILE
-
-    Serial.println("File found. Try to read...");
-    myFile = SD.open("test.txt", FILE_READ);
-
-    if (myFile) {
-      while (myFile.available()) {
-            Serial.write(myFile.read());
-          }
-        } else {
-          Serial.println("Cannot open file");
-        }
-
-        myFile.close();
-
-        // WRITE TO FILE
-
-        Serial.println("Try to write");
-        myFile = SD.open("test.txt", FILE_WRITE);
-
-    if (myFile) { 
-      myFile.seek(0);
-      for (int i = 0; i < 10; i++) {
-        myFile.write("A");
-      }
-    } else {
-      Serial.println("Cannot open file");
-    }
-
-    myFile.close();
-
-  } else {
-
-    // CREATE A FILE
-
-    Serial.println("File not found. Try to create...");
-    myFile = SD.open("test.txt", FILE_WRITE);
-
-    if (myFile) {
-      myFile.seek(0);
-      for (int i = 0; i < 10; i++) {
-        myFile.write("A");
-      }
-    } else {
-      Serial.println("Cannot open file");
-    }
-
-    myFile.close();
-  } 
 }
 
 void loop() {
   // Call each module loop method
   for(byte i = 0; i < modulesCount; i++) {
     sensorModuleArray[i]->loopDo();
+  }
+
+  // Check for web server calls
+  if (webServerActive) {
+    useDevice(DeviceIdEthernet);
+    nodeWebServer.processConnection(requestBuffer, &requestLen);
   }
 }
