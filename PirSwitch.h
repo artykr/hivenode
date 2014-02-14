@@ -1,5 +1,5 @@
 /*
-  PirSwitch.h - Library for driving a light with a wall-mounted switch
+  PirSwitch.h - Library for driving a light with PIR switch
   through a relay.
 */
   
@@ -40,12 +40,12 @@ class PirSwitch : public SensorModule
     typedef struct config_t
     {
       int8_t lightMode;           // Light switching mode: 0 - auto, 1 - manual on, 2 - manual off
-      int8_t pirDelay;            // Delay between PIR sensor state change and relay switch (in seconds)
+      uint8_t pirDelay;            // Delay between PIR sensor state change and relay switch (in seconds)
       int8_t moduleState;         // Is module on or off
     };
     
     int8_t _lightMode;            // Light switching mode: 0 - auto, 1 - manual on, 2 - manual off
-    int8_t _pirDelay;             // Delay between PIR sensor state change and relay switch (in seconds)
+    uint8_t _pirDelay;             // Delay between PIR sensor state change and relay switch (in seconds)
     int8_t _switchPin;            // Pin number for the PIR sensor
     int8_t _lightPin;             // Pin number for the relay
     unsigned long _delayCounter;

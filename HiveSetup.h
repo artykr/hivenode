@@ -25,7 +25,7 @@ const byte nodeId = 1;
 
 // Total number of modules on board
 // All the modules should be described in initModules()
-const byte modulesCount = 2;
+const byte modulesCount = 3;
 
 // Define zones in accordance with physical locations
 const byte hallZone = 1;
