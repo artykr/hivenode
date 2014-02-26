@@ -33,7 +33,11 @@ class DHTSensor : public SensorModule
     void turnModuleOff();         // Turn module off
     void turnModuleOn();          // Turn module on
     double getTemperature();      // Returns last measured temperature value
-    double getHumidity();         // Returns las measured humidity value
+    double getHumidity();         // Returns last measured humidity value  
+    int8_t getLowerBoundTemperature();
+    int8_t getUpperBoundTemperature();
+    int8_t getLowerBoundHumidity();
+    int8_t getUpperBoundHumidity();  
 
   private:
     // settings structure for use with write/readAnything routine

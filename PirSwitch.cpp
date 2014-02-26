@@ -168,7 +168,7 @@ void PirSwitch::_turnLightAuto() {
 }
 
 void PirSwitch::_pushNotify() {
-  _context->pushNotify(_moduleId);
+  _context->pushNotify(moduleId);
 }
 
 void PirSwitch::getJSONSettings() {
@@ -177,7 +177,7 @@ void PirSwitch::getJSONSettings() {
 
   if (_stateChanged) {
 
-    aJsonObject *moduleItem = aJson.getArrayItem(*(_context->moduleCollection), _moduleId-1);
+    aJsonObject *moduleItem = aJson.getArrayItem(*(_context->moduleCollection), moduleId-1);
     aJsonObject *moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
     
     // If we have an empty JSON settings structure

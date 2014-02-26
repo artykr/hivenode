@@ -109,8 +109,24 @@ double DHTSensor::getHumidity() {
   return _humidity;
 }
 
+int8_t DHTSensor::getLowerBoundTemperature() {
+  return _dht.getLowerBoundTemperature();
+}
+
+int8_t DHTSensor::getUpperBoundTemperature() {
+  return _dht.getUpperBoundTemperature();
+}
+
+int8_t DHTSensor::getLowerBoundHumidity() {
+  return _dht.getLowerBoundHumidity();
+}
+
+int8_t DHTSensor::getUpperBoundHumidity() {
+  return _dht.getUpperBoundHumidity();
+}
+
 void DHTSensor::_pushNotify() {
-  _context->pushNotify(_moduleId);
+  _context->pushNotify(moduleId);
 }
 
 void DHTSensor::getJSONSettings() {
@@ -119,7 +135,7 @@ void DHTSensor::getJSONSettings() {
 
   if (_stateChanged) {
 
-    aJsonObject *moduleItem = aJson.getArrayItem(*(_context->moduleCollection), _moduleId-1);
+    aJsonObject *moduleItem = aJson.getArrayItem(*(_context->moduleCollection), moduleId-1);
     aJsonObject *moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
     
     // If we have an empty JSON settings structure
@@ -135,7 +151,10 @@ void DHTSensor::getJSONSettings() {
       aJson.addNumberToObject(moduleItem, "humidity", _humidity);
       aJson.addNumberToObject(moduleItem, "measureUnits", _measureUnits);
       aJson.addNumberToObject(moduleItem, "measureInterval", _measureInterval);
-
+      aJson.addNumberToObject(moduleItem, "tUpperBound", getUpperBoundTemperature());
+      aJson.addNumberToObject(moduleItem, "tLowerBound", getLowerBoundTemperature());
+      aJson.addNumberToObject(moduleItem, "hUpperBound", getUpperBoundHumidity());
+      aJson.addNumberToObject(moduleItem, "hLowerBound", getLowerBoundHumidity());
     } else {
       // If we have an already initialized settings JSON structure
       // then just replace the values
@@ -215,6 +234,8 @@ boolean DHTSensor::setJSONSettings(aJsonObject *moduleItem) {
   }
 
   if ((_measureUnits != newMeasureUnits) || (_measureInterval != newMeasureInterval)) {
+    _measureUnits = newMeasureUnits;
+    _measureInterval = newMeasureInterval;
     _stateChanged = true;
     _saveSettings();
   }

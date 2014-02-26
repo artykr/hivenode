@@ -3,6 +3,7 @@
 #include "PirSwitch.h"
 #include "HiveStorage.h"
 #include "DHTSensor.h"
+#include "DHTSwitch.h"
 
 #ifdef HIVE_STATIC_IP
 IPAddress nodeIPAddress(192,168,1,60);
@@ -39,11 +40,16 @@ void initModules(AppContext *context, boolean loadSettings) {
   sensorModuleArray[0] = new LightSwitch(context, hallZone, 1, lastStoragePointer, loadSettings, 8, 4);
   lastStoragePointer += sensorModuleArray[0]->getStorageSize();
 
-  sensorModuleArray[1] = new PirSwitch(context, kitchenZone, 2, lastStoragePointer, loadSettings, 11, 5);
+  sensorModuleArray[1] = new PirSwitch(context, hallZone, 2, lastStoragePointer, loadSettings, 11, 5);
   lastStoragePointer += sensorModuleArray[1]->getStorageSize();
 
-  sensorModuleArray[2] = new DHTSensor(context, kitchenZone, 3, lastStoragePointer, loadSettings, 12);
+  DHTSensor *sensor = new DHTSensor(context, kitchenZone, 3, lastStoragePointer, loadSettings, 12);
+
+  sensorModuleArray[2] = sensor;
   lastStoragePointer += sensorModuleArray[2]->getStorageSize();
+  
+  //sensorModuleArray[3] = new DHTSwitch(context, sensor, kitchenZone, 3, lastStoragePointer, loadSettings, 65535, 50, 20, 0, 1, 6);
+  //lastStoragePointer += sensorModuleArray[2]->getStorageSize();
 
   // DEBUG
   Serial.println(F("Modules array setup finished"));

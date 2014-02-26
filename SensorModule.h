@@ -25,10 +25,11 @@ class SensorModule {
     virtual void turnModuleOn()  {};                // Turn module on
     virtual void loopDo() {};                       // Main processing (called from loop() in main sketch)
 
+    byte moduleId;          // Unique module ID, set on object creation
   protected:
     int _storagePointer;    // Storage address in EEPROM, set on object creation
     boolean _moduleState;   // Tells if the whole module is enabled (1) or disabled (0)
-    byte _moduleId;         // Unique module ID, set on object creation
+    
     byte _moduleZone;       // Zone code, where the module is located (typically a room), set on object creation
 };
 
