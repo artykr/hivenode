@@ -12,9 +12,6 @@
 #define SWITCH_RELAY_OFF 1
 #endif
 
-// TODO: define STATE_ON 1 and STATE_OFF 0
-// to use when reading and comparing light and switch state
-
 #include "Arduino.h"
 #include "SensorModule.h"
 #include "aJson.h"
@@ -33,9 +30,8 @@ class DHTSwitch : public SensorModule
       boolean loadSettings = true,    // We pass loadSettings flag = 0 in case if we are sure that there are no settings in the storage yet
       double tTreshold = 65535,       // Temperature treshold to switch the relay. 65535 value means no treshold.
       double hTreshold = 65535,       // Humidity treshold to switch the relay.
-      unsigned int maxOnTime = 0,     // Time (in seconds) to keep the relay on. Zero value corresponds to no limit.
-      unsigned int maxOffTime = 0,    // Time (in seconds) to keep the relay off. Only one of two values can be set at a time.
-                                      // If both present then maxOn value takes precedence.
+      int maxOnTime = 0,              // Time (in seconds) to keep the relay on. Zero value corresponds to no limit.
+      int restTime = 0,               // Time (in seconds) to give conrolled device "a rest" before switching it on again.
       int8_t switchType = 1,          // 1 - turn on the relay if temperature/humdity is higher than treshold, 0 - vice versa.
       int8_t relayPin = -1
     );
@@ -58,7 +54,7 @@ class DHTSwitch : public SensorModule
       double tTreshold;
       double hTreshold;
       int maxOnTime;
-      int maxOffTime;
+      int restTime;
       int8_t switchType;
     };
     
@@ -67,11 +63,13 @@ class DHTSwitch : public SensorModule
     double _tTreshold;
     double _hTreshold;
     int _maxOnTime;
-    int _maxOffTime;
+    int _restTime;
+    int8_t _restMode;             // 1 - device is having a rest, 0 - device is ready to go
     int8_t _switchType;           // 1 - switch on when crossing treshold from low to top
                                   // 0 - from top to low
-    unsigned long _timeCounter;
-    
+    unsigned long _workStart;
+    unsigned long _restStart;
+
     static const char _moduleType[12];   // Module type string
 
     boolean _stateChanged;        // Set to TRUE if anything (settings) - to prevent filling settings in again e.g. when the server asks for current settings

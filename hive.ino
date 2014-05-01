@@ -14,6 +14,8 @@
 #include "WebStream.h"
 #include "aJSON.h"
 #include "DHT.h"
+#include "OneWire.h"
+#include "DallasTemperature.h"
 #include "EEPROM.h"
 #include "MemoryFree.h"
 #include "HiveSetup.h"

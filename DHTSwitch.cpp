@@ -5,6 +5,7 @@
 #include "aJson.h"
 #include "AppContext.h"
 #include "MemoryFree.h"
+#include "HiveUtils.h"
 
 const char DHTSwitch::_moduleType[12] = "DHTSwitch";
 
@@ -17,8 +18,8 @@ DHTSwitch::DHTSwitch(
   boolean loadSettings,
   double tTreshold,
   double hTreshold,
-  unsigned int maxOnTime,
-  unsigned int maxOffTime,
+  int maxOnTime,
+  int restTime,
   int8_t switchType,
   int8_t relayPin
   ) : SensorModule(storagePointer, moduleId, zone),
@@ -27,7 +28,7 @@ DHTSwitch::DHTSwitch(
   _tTreshold(tTreshold),
   _hTreshold(hTreshold),
   _maxOnTime(maxOnTime),
-  _maxOffTime(maxOffTime),
+  _restTime(restTime),
   _switchType(switchType),
   _relayPin(relayPin)
 {
@@ -71,6 +72,9 @@ DHTSwitch::DHTSwitch(
 
 void DHTSwitch::_resetSettings() {
   _previousDeviceState = 0;
+  _workStart = millis();
+  _restStart = 0;
+  _restMode = 0;
   _moduleState = 1;
   _driveMode = 0;
 }
@@ -100,7 +104,7 @@ void DHTSwitch::_loadSettings() {
     _tTreshold = settings.tTreshold;
     _hTreshold = settings.hTreshold;
     _maxOnTime = settings.maxOnTime;
-    _maxOffTime = settings.maxOffTime;
+    _restTime = settings.restTime;
     _switchType = settings.switchType;
   } else {
     // If unable to read then reset settings to default
@@ -124,14 +128,14 @@ void DHTSwitch::_saveSettings() {
   settings.tTreshold = _tTreshold;
   settings.hTreshold = _hTreshold;
   settings.maxOnTime = _maxOnTime;
-  settings.maxOffTime = _maxOffTime;
+  settings.restTime = _restTime;
   settings.switchType = _switchType;
   writeStorage(_storagePointer, settings);
 }
 
 byte DHTSwitch::_readDeviceState () {
   
-  // Relay on/off states may be inversed depending on physical connections
+  // Relay on/off states may be inversed depending on relay type
   // So we take it into account and return simple values
   // 1 if the relay is on, 0 - if it's off
 
@@ -198,7 +202,7 @@ void DHTSwitch::getJSONSettings() {
       aJson.addNumberToObject(moduleItem, "tTreshold", _tTreshold);
       aJson.addNumberToObject(moduleItem, "hTreshold", _tTreshold);
       aJson.addNumberToObject(moduleItem, "maxOnTime", _maxOnTime);
-      aJson.addNumberToObject(moduleItem, "maxOffTime", _maxOffTime);
+      aJson.addNumberToObject(moduleItem, "restTime", _restTime);
       aJson.addNumberToObject(moduleItem, "switchType", _switchType);
       aJson.addNumberToObject(moduleItem, "sensorId", _sensor->moduleId);
 
@@ -224,8 +228,8 @@ void DHTSwitch::getJSONSettings() {
       moduleItemProperty = aJson.getObjectItem(moduleItem, "maxOnTime");
       moduleItemProperty->valueint = _maxOnTime;
 
-      moduleItemProperty = aJson.getObjectItem(moduleItem, "maxOffTime");
-      moduleItemProperty->valueint = _maxOffTime;
+      moduleItemProperty = aJson.getObjectItem(moduleItem, "restTime");
+      moduleItemProperty->valueint = _restTime;
 
       moduleItemProperty = aJson.getObjectItem(moduleItem, "switchType");
       moduleItemProperty->valueint = _switchType;
@@ -262,14 +266,22 @@ boolean DHTSwitch::_validateSettings(config_t *settings) {
     return false;
   }
 
-  if ((settings->maxOnTime < 0) || (settings->maxOffTime < 0)) {
+  if ((settings->maxOnTime < 0) || (settings->restTime < 0)) {
     return false;
   }
-
+   
+  if ((settings->maxOnTime > 0) && (settings->restTime == 0)) {
+    return false;
+  }
+  
+  if ((settings->maxOnTime == 0) && (settings->restTime > 0)) {
+    return false;
+  }
+  
   if ((settings->switchType < 0) || (settings->switchType > 1)) {
     return false;
   }
-
+  
   return true;
 }
 
@@ -282,7 +294,7 @@ boolean DHTSwitch::setJSONSettings(aJsonObject *moduleItem) {
   double newTTreshold = -1;
   double newHTreshold = -1;
   int newMaxOnTime = -1;
-  int newMaxOffTime = -1;
+  int newRestTime = -1;
   int8_t newSwitchType = -1;
   
   // Check for module type first
@@ -306,8 +318,8 @@ boolean DHTSwitch::setJSONSettings(aJsonObject *moduleItem) {
   moduleItemProperty = aJson.getObjectItem(moduleItem,  "maxOnTime");
   newMaxOnTime = moduleItemProperty->valueint;
 
-  moduleItemProperty = aJson.getObjectItem(moduleItem,  "maxOffTime");
-  newMaxOffTime = moduleItemProperty->valueint;
+  moduleItemProperty = aJson.getObjectItem(moduleItem,  "restTime");
+  newRestTime = moduleItemProperty->valueint;
 
   moduleItemProperty = aJson.getObjectItem(moduleItem,  "switchType");
   newSwitchType = moduleItemProperty->valueint;
@@ -317,7 +329,7 @@ boolean DHTSwitch::setJSONSettings(aJsonObject *moduleItem) {
   settings.tTreshold = newTTreshold;
   settings.hTreshold = newHTreshold;
   settings.maxOnTime = newMaxOnTime;
-  settings.maxOffTime = newMaxOffTime;
+  settings.restTime = newRestTime;
   settings.switchType = newSwitchType;
 
   
@@ -328,7 +340,7 @@ boolean DHTSwitch::setJSONSettings(aJsonObject *moduleItem) {
   _tTreshold = newTTreshold;
   _hTreshold = newHTreshold;
   _maxOnTime = newMaxOnTime;
-  _maxOffTime = newMaxOffTime;
+  _restTime = newRestTime;
   _switchType = newSwitchType;
 
   if (_moduleState != newModuleState) {
@@ -404,59 +416,47 @@ void DHTSwitch::loopDo() {
   int8_t deviceState;
 
   // If the module is on now
-  if (_moduleState && (_driveMode == 0)) {
+  if (_moduleState) {
     deviceState = _readDeviceState();
-    
-    // If we are in 'active' state: treshold is crossed, need to switch the relay on
-    if (_checkTreshold()) {
-      // Reset the "off" counter when we cross the treshold
-      if (_maxOffTime > 0) {
-        _timeCounter = 0;
-      }
-  
-      // If relay is off turn it on (only if we haven't already switched on)
-      if ((deviceState == 0) && (_timeCounter == 0)) {
+
+    // If auto-control is on
+    if (_driveMode == 0) {
+      
+      // Check if device is having a rest
+      if (_restMode == 1) {
         
-        // If we have a time limit then save a timestamp for later check
-        if (_maxOnTime > 0) {
-          _timeCounter = millis();
+        // If the rest is over
+        if (timeDiff(_restStart) > _restTime * 1000) {
+          _restMode = 0;
+        } else {
+          return;
         }
-  
-        digitalWrite(_relayPin, SWITCH_RELAY_ON);
+
       } else {
-        // If relay is on then check for a time limit
-        if ((_maxOnTime > 0) && (abs(millis() - _timeCounter) > _maxOnTime)) {
-          if (deviceState == 1) {
-            digitalWrite(_relayPin, SWITCH_RELAY_OFF);
-          }
-        }
-      }
-    } else {
-      // Reset "on" counter after we fell "below" the treshold
-      if (_maxOnTime > 0) {
-        _timeCounter = 0;
-      }
-  
-      // If relay is on turn it off (only if we haven't already switched off)
-      if ((deviceState == 1) && (_timeCounter == 0)) {
-        
-        // If we have a time limit then save a timestamp for later check
-        if (_maxOffTime > 0) {
-          _timeCounter = millis();
-        }
-  
-        digitalWrite(_relayPin, SWITCH_RELAY_OFF);
-      } else {
-        // If relay is on then check for a time limit
-        if ((_maxOffTime > 0) && (abs(millis() - _timeCounter) > _maxOffTime)) {
-          if (deviceState == 0) {
-            digitalWrite(_relayPin, SWITCH_RELAY_ON);
-          }
+        // If we have a time limit and it's time to rest
+        // Also make sure device is working
+        if ((deviceState == 1) && (_maxOnTime > 0) && timeDiff(_workStart) > _maxOnTime * 1000) {     
+          _restMode = 1;
+          _restStart = millis();
+          digitalWrite(_relayPin, SWITCH_RELAY_OFF);
+          return;
         }
       }
       
+      if (_checkTreshold()) {
+        if (deviceState == 0) {
+          _workStart = millis();
+          digitalWrite(_relayPin, SWITCH_RELAY_ON);
+        }
+      } else {
+        digitalWrite(_relayPin, SWITCH_RELAY_OFF);
+      }
+
+    } else if ((_driveMode == 1) && (deviceState == 0)) {
+      digitalWrite(_relayPin, SWITCH_RELAY_ON);
+    } else if ((_driveMode == 2) && (deviceState == 1)) {
+      digitalWrite(_relayPin, SWITCH_RELAY_OFF);
     }
-    // end of if checkTreshold
   }
-  // end of if module is on
+
 }

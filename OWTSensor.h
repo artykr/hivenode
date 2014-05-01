@@ -1,10 +1,10 @@
 /*
-  DHTSensor.h - Library for getting temperature and humidity from DHT series sensor.
+  OWTSensor.h - Library for getting temperature and humidity from 1WT series sensor.
 */
   
-#ifndef DHTSensor_h
-#define DHTSensor_h
-#define DHTSENSOR_MODULE_VERSION 1
+#ifndef OWTSensor_h
+#define OWTSensor_h
+#define OWTSENSOR_MODULE_VERSION 1
 
 // TODO: define STATE_ON 1 and STATE_OFF 0
 // to use when reading and comparing light and switch state
@@ -14,15 +14,18 @@
 #include "aJson.h"
 #include "AppContext.h"
 
-#define OPTIMIZE_SRAM_SIZE 1
-#include "DHT.h"
+#include "OneWire.h"
+#include "DallasTemperature.h"
     
-class DHTSensor : public SensorModule
+class OWTSensor : public SensorModule
 {
   public:
-    DHTSensor(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings = true, int8_t signalPin = -1);
+    // Constructor for a known sensor address
+    OWTSensor(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings = true, int8_t signalPin = -1, int8_t resolution = 9, uint8_t deviceIndex = 0);
+
     // We need a context structure to get global properties, i.e. method for push notifications on a switch change etc.
     // We pass loadSettings flag = 0 in case if we are sure that there are no settings in storage yet
+    // Resolution is the number of bits for the temperature value
     
     const char* getModuleType();
     byte getStorageSize();
@@ -33,11 +36,6 @@ class DHTSensor : public SensorModule
     void turnModuleOff();         // Turn module off
     void turnModuleOn();          // Turn module on
     double getTemperature();      // Returns last measured temperature value
-    double getHumidity();         // Returns last measured humidity value  
-    int8_t getLowerBoundTemperature();
-    int8_t getUpperBoundTemperature();
-    int8_t getLowerBoundHumidity();
-    int8_t getUpperBoundHumidity();  
 
   private:
     // settings structure for use with write/readAnything routine
@@ -45,27 +43,26 @@ class DHTSensor : public SensorModule
     {
       int8_t measureUnits;        // Measurment units: 0 - Celcius, 1 - Fahrenheit
       int8_t moduleState;         // int8 used to store invalid values for validation purposes
-      uint8_t measureInterval;    // Measuring interval (seconds, from 1 to 255)
     };
     
+    uint8_t _deviceIndex;         // 1-Wire device index
     int8_t _measureUnits;         // Measurment units: 0 - Celcius, 1 - Fahrenheit
     int8_t _signalPin;            // Signal pin number
     uint8_t _measureInterval;     // Measuring interval (seconds)
     double _temperature;          // Stores last measured temperature value. Value of 65535 means no last value is known
-    double _humidity;             // Stores last measured humidity value. Value of 65535 means no last value is known
-    long _intervalCounter;        // 
+    int8_t _resolution;
+    unsigned long _intervalCounter;        // 
     
     static const char _moduleType[12];   // Module type string
 
     boolean _stateChanged;        // Set to TRUE if anything (settings) - to prevent filling settings in again
                                   // e.g. when the server asks for current settings
     AppContext *_context;         // Pointer to the AppContext object
-
-    DHT _dht;                     // DHT library instance
+    DallasTemperature *_dt;       // Dallas library instance
     
     void _saveSettings();         // Puts settings into storage
     void _loadSettings();         // Loads settings from storage
-    void _resetSettings();        // Resets settings to default values
+    void _resetSettings();        // Resets settings to default values 
     
     boolean _validateSettings(config_t *settings);
 };

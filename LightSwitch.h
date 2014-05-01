@@ -11,8 +11,8 @@
 #define LIGHTSWITCH_RELAY_ON 0
 #define LIGHTSWITCH_RELAY_OFF 1
 
-// TODO: define STATE_ON 1 and STATE_OFF 0
-// to use when reading and comparing light and switch state
+// TODO: make relay and switch on/off states passable parmeters
+// for normal-closed and normal-open relays and pullup and pulldown resistors
 
 #include "Arduino.h"
 #include "SensorModule.h"

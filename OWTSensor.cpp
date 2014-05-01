@@ -1,67 +1,86 @@
 #include "Arduino.h"
 #include "HiveStorage.h"
-#include "DHTSensor.h"
+#include "OWTSensor.h"
 #include "SensorModule.h"
 #include "aJson.h"
 #include "AppContext.h"
 #include "MemoryFree.h"
-#include "DHT.h"
+#include "OneWire.h"
+#include "DallasTemperature.h"
+#include "HiveUtils.h"
 
-const char DHTSensor::_moduleType[12] = "DHTSensor";
+const char OWTSensor::_moduleType[12] = "OWTSensor";
 
-DHTSensor::DHTSensor(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings, int8_t signalPin) : 
+OWTSensor::OWTSensor(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings, int8_t signalPin, int8_t resolution, uint8_t deviceIndex) :
   SensorModule(storagePointer, moduleId, zone),
   _signalPin(signalPin),
-  _context(context) {
-  
+  _resolution(resolution),
+  _context(context),
+  _deviceIndex(deviceIndex) {
+
+  OneWire oneWire(signalPin);
+  DallasTemperature dt(&oneWire);
+
   _intervalCounter = millis();
   _stateChanged = true;
   _resetSettings();
-  
-  // DEBUG
-  Serial.println(F("Init DHTSensor"));
 
-  _dht.setup(signalPin);
-  delay(_dht.getMinimumSamplingPeriod());
-
-  if (loadSettings) {
+   if (loadSettings) {
     _loadSettings();
   } else {
     // If there's no load flag then we haven't saved anything yet, so init the storage
     _saveSettings();
   }
-  
+
+  // DEBUG
+  Serial.println(F("Init OWTSensor"));
+  dt.begin();
+
+  uint8_t deviceCount = dt.getDeviceCount();
+  DeviceAddress deviceAddress;
+
+  if (deviceCount == 0) {
+    _moduleState = 0;
+    _temperature = 65535;
+  }
+
+  if (deviceCount > 0) {
+    if (!dt.getAddress(deviceAddress, 0)) {
+      _moduleState = 0;
+      _temperature = 65535;
+    }
+  }
+
   if (_moduleState) {
-    _temperature = _dht.getTemperature();
+    dt.setWaitForConversion(true);
+    dt.setResolution(deviceAddress, 9);
+    _temperature = dt.getTempC(deviceAddress);
 
     if (isnan(_temperature) != 0) {
       _temperature = 65535;
     }
 
-    _humidity = _dht.getHumidity();
+    dt.setWaitForConversion(false);
+    _measureInterval = 750 / (1 << (12 - _resolution));
 
-    if (isnan(_humidity) != 0) {
-      _humidity = 65535;
-    }
+    _dt = &dt;
   }
 
   // DEBUG
-  Serial.println(F("Finished DHTSensor init"));
+  Serial.println(F("Finished OWTSensor init"));
 }
 
-void DHTSensor::_resetSettings() {
+void OWTSensor::_resetSettings() {
   _moduleState = 1;
   _measureUnits = 0;
-  _measureInterval = 30;
   _temperature = 65535;
-  _humidity = 65535;
 }
 
-byte DHTSensor::getStorageSize() {
+byte OWTSensor::getStorageSize() {
   return sizeof(config_t);
 }
 
-void DHTSensor::_loadSettings() {
+void OWTSensor::_loadSettings() {
   boolean isLoaded = false;
 
   //DEBUG
@@ -78,7 +97,6 @@ void DHTSensor::_loadSettings() {
 
   if (isLoaded) {
     _measureUnits = settings.measureUnits;
-    _measureInterval = settings.measureInterval;
     _moduleState = settings.moduleState;
   } else {
     // If unable to read then reset settings to default
@@ -91,50 +109,29 @@ void DHTSensor::_loadSettings() {
   _stateChanged = true;
 }
 
-void DHTSensor::_saveSettings() {
+void OWTSensor::_saveSettings() {
   //DEBUG
   Serial.println(F("Saving module settings"));
 
   config_t settings;
 
   settings.measureUnits = _measureUnits;
-  settings.measureInterval = _measureInterval;
   settings.moduleState = _moduleState;
 
   writeStorage(_storagePointer, settings);
 }
 
-double DHTSensor::getTemperature() {
+double OWTSensor::getTemperature() {
   if (_measureUnits == 0) {
     return _temperature;
   } else {
     float f = (float) _temperature;
-    double d = (double) _dht.toFahrenheit(f);
+    double d = (double) DallasTemperature::toFahrenheit(f);
     return d;
   }
 }
 
-double DHTSensor::getHumidity() {
-  return _humidity;
-}
-
-int8_t DHTSensor::getLowerBoundTemperature() {
-  return _dht.getLowerBoundTemperature();
-}
-
-int8_t DHTSensor::getUpperBoundTemperature() {
-  return _dht.getUpperBoundTemperature();
-}
-
-int8_t DHTSensor::getLowerBoundHumidity() {
-  return _dht.getLowerBoundHumidity();
-}
-
-int8_t DHTSensor::getUpperBoundHumidity() {
-  return _dht.getUpperBoundHumidity();
-}
-
-void DHTSensor::getJSONSettings() {
+void OWTSensor::getJSONSettings() {
   // generate json settings only if something's changed
   // TODO: mark properties with read-only and read-write types
 
@@ -142,24 +139,18 @@ void DHTSensor::getJSONSettings() {
 
     aJsonObject *moduleItem = aJson.getArrayItem(*(_context->moduleCollection), moduleId-1);
     aJsonObject *moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
-    
+
     // If we have an empty JSON settings structure
     // then fill it with values
 
-    if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {    
-      
+    if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {
+
       // TODO: Add prefixes to param names to mark readonly fields
       aJson.addStringToObject(moduleItem, "moduleType", _moduleType);
       aJson.addNumberToObject(moduleItem, "moduleState", _moduleState);
       aJson.addNumberToObject(moduleItem, "zoneId", _moduleZone);
       aJson.addNumberToObject(moduleItem, "temperature", _temperature);
-      aJson.addNumberToObject(moduleItem, "humidity", _humidity);
       aJson.addNumberToObject(moduleItem, "measureUnits", _measureUnits);
-      aJson.addNumberToObject(moduleItem, "measureInterval", _measureInterval);
-      aJson.addNumberToObject(moduleItem, "tUpperBound", getUpperBoundTemperature());
-      aJson.addNumberToObject(moduleItem, "tLowerBound", getLowerBoundTemperature());
-      aJson.addNumberToObject(moduleItem, "hUpperBound", getUpperBoundHumidity());
-      aJson.addNumberToObject(moduleItem, "hLowerBound", getLowerBoundHumidity());
     } else {
       // If we have an already initialized settings JSON structure
       // then just replace the values
@@ -168,17 +159,10 @@ void DHTSensor::getJSONSettings() {
       moduleItemProperty->valuebool = _moduleState;
 
       moduleItemProperty = aJson.getObjectItem(moduleItem, "temperature");
-
       moduleItemProperty->valuefloat = getTemperature();
-
-      moduleItemProperty = aJson.getObjectItem(moduleItem, "humidity");
-      moduleItemProperty->valuefloat = getHumidity();
 
       moduleItemProperty = aJson.getObjectItem(moduleItem, "measureUnits");
       moduleItemProperty->valueint = _measureUnits;
-
-      moduleItemProperty = aJson.getObjectItem(moduleItem, "measureInterval");
-      moduleItemProperty->valueint = _measureInterval;
     }
 
     _stateChanged = false;
@@ -187,30 +171,25 @@ void DHTSensor::getJSONSettings() {
 }
 
 // TODO: if error, return settings object with error item
-boolean DHTSensor::_validateSettings(config_t *settings) {
+boolean OWTSensor::_validateSettings(config_t *settings) {
   if ((settings->measureUnits < 0) || (settings->measureUnits > 1)) {
     return false;
   }
-  
+
   if ((settings->moduleState < 0) || (settings->moduleState > 1)) {
     return false;
   }
 
-  if ((settings->measureInterval < _dht.getMinimumSamplingPeriod()) || (settings->measureInterval > 255)) {
-    return false;
-  }
-  
   return true;
 }
 
-boolean DHTSensor::setJSONSettings(aJsonObject *moduleItem) {
+boolean OWTSensor::setJSONSettings(aJsonObject *moduleItem) {
   config_t settings;
   aJsonObject *moduleItemProperty;
   // Initialiaze to invalid values so the validation works
   int8_t newMeasureUnits = -1;
-  uint8_t newMeasureInterval = 0;
   int8_t newModuleState = -1;
-  
+
   // Check for module type first
   moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
   if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {
@@ -219,58 +198,46 @@ boolean DHTSensor::setJSONSettings(aJsonObject *moduleItem) {
 
   moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleState");
   newModuleState = moduleItemProperty->valuebool;
-  
+
   moduleItemProperty = aJson.getObjectItem(moduleItem,  "measureUnits");
   newMeasureUnits = moduleItemProperty->valueint;
 
-  moduleItemProperty = aJson.getObjectItem(moduleItem,  "measureInterval");
-  newMeasureInterval = moduleItemProperty->valueint;
-  
   settings.measureUnits = newMeasureUnits;
-  settings.measureInterval = newMeasureInterval;
   settings.moduleState = newModuleState;
-  
+
   if (!_validateSettings(&settings)) {
     return false;
   }
-  
+
   if (_moduleState != newModuleState) {
     newModuleState ? turnModuleOn() : turnModuleOff();
   }
 
-  if ((_measureUnits != newMeasureUnits) || (_measureInterval != newMeasureInterval)) {
+  if (_measureUnits != newMeasureUnits) {
     _measureUnits = newMeasureUnits;
-    _measureInterval = newMeasureInterval;
     _stateChanged = true;
     _saveSettings();
   }
-  
+
   return true;
 }
 
-void DHTSensor::turnModuleOff() {
+void OWTSensor::turnModuleOff() {
   if (_moduleState) {
     _temperature = 65535;
-    _humidity = 65535;
     _moduleState = false;
     _stateChanged = true;
     _saveSettings();
   }
 }
 
-void DHTSensor::turnModuleOn() {
+void OWTSensor::turnModuleOn() {
   if (!_moduleState) {
-    
-    _temperature = _dht.getTemperature();
+
+    _temperature = _dt->getTempCByIndex(_deviceIndex);
 
     if (isnan(_temperature) != 0) {
       _temperature = 65535;
-    }
-
-    _humidity = _dht.getHumidity();
-    
-    if (isnan(_humidity) != 0) {
-      _humidity = 65535;
     }
 
     _moduleState = true;
@@ -279,39 +246,26 @@ void DHTSensor::turnModuleOn() {
   }
 }
 
-void DHTSensor::loopDo() {
+void OWTSensor::loopDo() {
   // If the module is on now
   if (_moduleState) {
     // If it's time to measure
-    if (abs(millis() - _intervalCounter) >= (_measureInterval * 1000)) {
-      
-      // DEBUG
-      Serial.println("Checking DHT...");
-
-      // Reset time interval counter
-      _intervalCounter = millis();
+    if (timeDiff(_intervalCounter) >= _measureInterval) {
 
       // Get new values
-      double newTemperature = _dht.getTemperature();
-      double newHumidity = _dht.getHumidity();
+      double newTemperature = _dt->getTempCByIndex(_deviceIndex);
 
-      if (newTemperature != _temperature || newHumidity != _humidity) {
+      if (newTemperature != _temperature) {
         if (isnan(newTemperature) == 0) {
           _temperature = newTemperature;
         }
 
-        if (isnan(_humidity) == 0) {
-          _humidity = newHumidity;
-        }
-
-        // DEBUG
-        Serial.print(F("Temperature: "));
-        Serial.println(_temperature, 2);
-        Serial.print(F("Humidity: "));
-        Serial.println(_humidity, 2);
-
         _stateChanged = true;
       }
+
+      // Reset time interval counter
+      _intervalCounter = millis();
+      _dt->requestTemperaturesByIndex(_deviceIndex); 
     }
   }
 }
