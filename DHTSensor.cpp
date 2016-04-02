@@ -6,20 +6,21 @@
 #include "AppContext.h"
 #include "MemoryFree.h"
 #include "DHT.h"
+#include "HiveUtils.h"
 
 const char DHTSensor::_moduleType[12] = "DHTSensor";
 
-DHTSensor::DHTSensor(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings, int8_t signalPin) : 
+DHTSensor::DHTSensor(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings, int8_t signalPin) :
   SensorModule(storagePointer, moduleId, zone),
   _signalPin(signalPin),
   _context(context) {
-  
+
   _intervalCounter = millis();
   _stateChanged = true;
   _resetSettings();
-  
+
   // DEBUG
-  Serial.println(F("Init DHTSensor"));
+  debugPrint(F("DHT: Init DHTSensor"));
 
   _dht.setup(signalPin);
   delay(_dht.getMinimumSamplingPeriod());
@@ -30,7 +31,7 @@ DHTSensor::DHTSensor(AppContext *context, const byte zone, byte moduleId, int st
     // If there's no load flag then we haven't saved anything yet, so init the storage
     _saveSettings();
   }
-  
+
   if (_moduleState) {
     _temperature = _dht.getTemperature();
 
@@ -46,7 +47,7 @@ DHTSensor::DHTSensor(AppContext *context, const byte zone, byte moduleId, int st
   }
 
   // DEBUG
-  Serial.println(F("Finished DHTSensor init"));
+  debugPrint(F("DHT: Finished DHTSensor init"), true);
 }
 
 void DHTSensor::_resetSettings() {
@@ -65,7 +66,7 @@ void DHTSensor::_loadSettings() {
   boolean isLoaded = false;
 
   //DEBUG
-  Serial.println(F("Loading module settings"));
+  debugPrint(F("DHT: Loading module settings"));
 
   config_t settings;
 
@@ -93,7 +94,7 @@ void DHTSensor::_loadSettings() {
 
 void DHTSensor::_saveSettings() {
   //DEBUG
-  Serial.println(F("Saving module settings"));
+  debugPrint(F("DHT: Saving module settings"));
 
   config_t settings;
 
@@ -142,12 +143,12 @@ void DHTSensor::getJSONSettings() {
 
     aJsonObject *moduleItem = aJson.getArrayItem(*(_context->moduleCollection), moduleId-1);
     aJsonObject *moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
-    
+
     // If we have an empty JSON settings structure
     // then fill it with values
 
-    if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {    
-      
+    if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {
+
       // TODO: Add prefixes to param names to mark readonly fields
       aJson.addStringToObject(moduleItem, "moduleType", _moduleType);
       aJson.addNumberToObject(moduleItem, "moduleState", _moduleState);
@@ -191,7 +192,7 @@ boolean DHTSensor::_validateSettings(config_t *settings) {
   if ((settings->measureUnits < 0) || (settings->measureUnits > 1)) {
     return false;
   }
-  
+
   if ((settings->moduleState < 0) || (settings->moduleState > 1)) {
     return false;
   }
@@ -199,7 +200,7 @@ boolean DHTSensor::_validateSettings(config_t *settings) {
   if ((settings->measureInterval < _dht.getMinimumSamplingPeriod()) || (settings->measureInterval > 255)) {
     return false;
   }
-  
+
   return true;
 }
 
@@ -210,7 +211,7 @@ boolean DHTSensor::setJSONSettings(aJsonObject *moduleItem) {
   int8_t newMeasureUnits = -1;
   uint8_t newMeasureInterval = 0;
   int8_t newModuleState = -1;
-  
+
   // Check for module type first
   moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
   if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {
@@ -219,21 +220,21 @@ boolean DHTSensor::setJSONSettings(aJsonObject *moduleItem) {
 
   moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleState");
   newModuleState = moduleItemProperty->valuebool;
-  
+
   moduleItemProperty = aJson.getObjectItem(moduleItem,  "measureUnits");
   newMeasureUnits = moduleItemProperty->valueint;
 
   moduleItemProperty = aJson.getObjectItem(moduleItem,  "measureInterval");
   newMeasureInterval = moduleItemProperty->valueint;
-  
+
   settings.measureUnits = newMeasureUnits;
   settings.measureInterval = newMeasureInterval;
   settings.moduleState = newModuleState;
-  
+
   if (!_validateSettings(&settings)) {
     return false;
   }
-  
+
   if (_moduleState != newModuleState) {
     newModuleState ? turnModuleOn() : turnModuleOff();
   }
@@ -244,7 +245,7 @@ boolean DHTSensor::setJSONSettings(aJsonObject *moduleItem) {
     _stateChanged = true;
     _saveSettings();
   }
-  
+
   return true;
 }
 
@@ -260,7 +261,7 @@ void DHTSensor::turnModuleOff() {
 
 void DHTSensor::turnModuleOn() {
   if (!_moduleState) {
-    
+
     _temperature = _dht.getTemperature();
 
     if (isnan(_temperature) != 0) {
@@ -268,7 +269,7 @@ void DHTSensor::turnModuleOn() {
     }
 
     _humidity = _dht.getHumidity();
-    
+
     if (isnan(_humidity) != 0) {
       _humidity = 65535;
     }
@@ -283,10 +284,10 @@ void DHTSensor::loopDo() {
   // If the module is on now
   if (_moduleState) {
     // If it's time to measure
-    if (abs(millis() - _intervalCounter) >= (_measureInterval * 1000)) {
-      
+    if (timeDiff(_intervalCounter) >= (_measureInterval * 1000)) {
+
       // DEBUG
-      Serial.println("Checking DHT...");
+      debugPrint(F("DHT: Checking..."));
 
       // Reset time interval counter
       _intervalCounter = millis();
@@ -305,10 +306,10 @@ void DHTSensor::loopDo() {
         }
 
         // DEBUG
-        Serial.print(F("Temperature: "));
-        Serial.println(_temperature, 2);
-        Serial.print(F("Humidity: "));
-        Serial.println(_humidity, 2);
+        debugPrint(F("DHT: Temperature: "), false);
+        debugPrint(_temperature);
+        debugPrint(F("DHT: Humidity: "), false);
+        debugPrint(_humidity);
 
         _stateChanged = true;
       }

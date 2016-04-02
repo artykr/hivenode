@@ -10,6 +10,17 @@
 #define HIVE_STATIC_IP
 #endif
 
+#ifndef HIVE_DEBUG
+#define HIVE_DEBUG
+#endif
+
+#ifndef ETH_W5200
+#define ETH_W5200
+#define nRST  8
+#define nPWDN 9
+#define nINT  3
+#endif
+
 extern IPAddress nodeIPAddress;
 
 // Stored at the first byte of EEPROM indicates that settings are already
@@ -25,7 +36,7 @@ const byte nodeId = 1;
 
 // Total number of modules on board
 // All the modules should be described in initModules()
-const byte modulesCount = 3;
+const byte modulesCount = 2;
 
 // Define zones in accordance with physical locations
 const byte hallZone = 1;
@@ -45,7 +56,7 @@ const uint8_t DeviceIdEthernet = 0;
 const uint8_t DeviceIdSD = 1;
 
 // CS pins for each SPI device according to device ids
-const uint8_t DevicesCSPins[] = { 10, 53 };
+const uint8_t DevicesCSPins[] = { 10, 4 };
 
 // Storage offset - modules settings come after the offset.
 // This is the size of general settings (if any)
@@ -68,7 +79,7 @@ extern char StorageFileName[16];
 extern SensorModule *sensorModuleArray[modulesCount];
 
 // Define an array for MAC adress of the Ethernet shield
-extern byte hivemac[6]; 
+extern byte hivemac[6];
 
 void initModules(AppContext *context, boolean loadSettings);
 

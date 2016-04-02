@@ -26,12 +26,12 @@ class PID
       uint16_t timeStep,
       boolean direction
     );
-    
+
     void setKs(float kP, float kI, float kD); // Sets PID coefs on the go
     float getKp();
     float getKi();
     float getKd();
-    unsigned long getStepTime();
+    unsigned long getStableTime();
     void setTimeStep(uint16_t timeStep); // Sets sample time at which PID calculation is done
     void setOutputLimits(float limitMin, float limitMax); // Limits PID output
     void resetCalc();

@@ -18,25 +18,25 @@ OWTSensor::OWTSensor(AppContext *context, const byte zone, byte moduleId, int st
   _context(context),
   _deviceIndex(deviceIndex) {
 
-  OneWire oneWire(signalPin);
-  DallasTemperature dt(&oneWire);
+  _oneWire = new OneWire(signalPin);
+  _dt = new DallasTemperature(_oneWire);
 
-  _intervalCounter = millis();
   _stateChanged = true;
   _resetSettings();
 
-   if (loadSettings) {
+  // DEBUG
+  debugPrint(F("OWT: Init OWTSensor"));
+
+  if (loadSettings) {
     _loadSettings();
   } else {
     // If there's no load flag then we haven't saved anything yet, so init the storage
     _saveSettings();
   }
 
-  // DEBUG
-  Serial.println(F("Init OWTSensor"));
-  dt.begin();
+  _dt->begin();
 
-  uint8_t deviceCount = dt.getDeviceCount();
+  uint8_t deviceCount = _dt->getDeviceCount();
   DeviceAddress deviceAddress;
 
   if (deviceCount == 0) {
@@ -45,29 +45,35 @@ OWTSensor::OWTSensor(AppContext *context, const byte zone, byte moduleId, int st
   }
 
   if (deviceCount > 0) {
-    if (!dt.getAddress(deviceAddress, 0)) {
+    if (!_dt->getAddress(deviceAddress, _deviceIndex)) {
       _moduleState = 0;
       _temperature = 65535;
     }
   }
 
   if (_moduleState) {
-    dt.setWaitForConversion(true);
-    dt.setResolution(deviceAddress, 9);
-    _temperature = dt.getTempC(deviceAddress);
+    _dt->setResolution(deviceAddress, _resolution);
+    _dt->setWaitForConversion(false);
+    _dt->requestTemperatures();
+
+    _measureInterval = 750 / (1 << (12 - _resolution));
+    delay(_measureInterval);
+
+    _temperature = (double) _dt->getTempC(deviceAddress);
 
     if (isnan(_temperature) != 0) {
       _temperature = 65535;
     }
 
-    dt.setWaitForConversion(false);
-    _measureInterval = 750 / (1 << (12 - _resolution));
+    _intervalCounter = millis();
 
-    _dt = &dt;
+    // DEBUG
+    debugPrint(F("OWT: Temp on init: "), false);
+    debugPrint(_temperature);
   }
 
   // DEBUG
-  Serial.println(F("Finished OWTSensor init"));
+  debugPrint(F("OWT: Finished OWTSensor init"));
 }
 
 void OWTSensor::_resetSettings() {
@@ -84,7 +90,7 @@ void OWTSensor::_loadSettings() {
   boolean isLoaded = false;
 
   //DEBUG
-  Serial.println(F("Loading module settings"));
+  debugPrint(F("OWT: Loading module settings"));
 
   config_t settings;
 
@@ -111,7 +117,7 @@ void OWTSensor::_loadSettings() {
 
 void OWTSensor::_saveSettings() {
   //DEBUG
-  Serial.println(F("Saving module settings"));
+  debugPrint(F("OWT: Saving module settings"));
 
   config_t settings;
 
@@ -234,7 +240,7 @@ void OWTSensor::turnModuleOff() {
 void OWTSensor::turnModuleOn() {
   if (!_moduleState) {
 
-    _temperature = _dt->getTempCByIndex(_deviceIndex);
+    _temperature = (double) _dt->getTempCByIndex(_deviceIndex);
 
     if (isnan(_temperature) != 0) {
       _temperature = 65535;
@@ -249,11 +255,12 @@ void OWTSensor::turnModuleOn() {
 void OWTSensor::loopDo() {
   // If the module is on now
   if (_moduleState) {
+
     // If it's time to measure
     if (timeDiff(_intervalCounter) >= _measureInterval) {
 
       // Get new values
-      double newTemperature = _dt->getTempCByIndex(_deviceIndex);
+      double newTemperature = (double) _dt->getTempCByIndex(_deviceIndex);
 
       if (newTemperature != _temperature) {
         if (isnan(newTemperature) == 0) {
@@ -265,7 +272,8 @@ void OWTSensor::loopDo() {
 
       // Reset time interval counter
       _intervalCounter = millis();
-      _dt->requestTemperaturesByIndex(_deviceIndex); 
+      _dt->requestTemperatures();
     }
+
   }
 }

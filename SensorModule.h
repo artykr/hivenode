@@ -13,7 +13,7 @@
 class SensorModule {
   public:
     SensorModule(int storagePointer, byte moduleId, byte moduleZone);
-    
+
     // We should define a default body for each virtual funcion
     // or declare them as pure virtual so the linker won't nag
     // with vtable errors
@@ -24,12 +24,13 @@ class SensorModule {
     virtual void turnModuleOff() {};                // Turn module off
     virtual void turnModuleOn()  {};                // Turn module on
     virtual void loopDo() {};                       // Main processing (called from loop() in main sketch)
+    virtual void handleInterrupt() {};
 
     byte moduleId;          // Unique module ID, set on object creation
   protected:
     int _storagePointer;    // Storage address in EEPROM, set on object creation
     boolean _moduleState;   // Tells if the whole module is enabled (1) or disabled (0)
-    
+
     byte _moduleZone;       // Zone code, where the module is located (typically a room), set on object creation
 };
 

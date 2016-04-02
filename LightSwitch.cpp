@@ -5,37 +5,40 @@
 #include "aJson.h"
 #include "AppContext.h"
 #include "MemoryFree.h"
+#include "HiveUtils.h"
 
 const char LightSwitch::_moduleType[12] = "LightSwitch";
 
-LightSwitch::LightSwitch(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings, int8_t switchPin, int8_t lightPin) : 
+// TODO: add PULLUP or PULLDOWN resistor mode param in constructor
+
+LightSwitch::LightSwitch(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings, int8_t switchPin, int8_t lightPin) :
   SensorModule(storagePointer, moduleId, zone),
   _switchPin(switchPin),
   _lightPin(lightPin),
   _context(context) {
-  
+
   _stateChanged = true;
   _resetSettings();
-  
+
   // DEBUG
-  Serial.println(F("Init LightSwitch"));
+  debugPrint(F("LS: Init LightSwitch"));
 
   pinMode(_switchPin, INPUT);
-  
+
   if (loadSettings) {
     _loadSettings();
   } else {
     // If there's no load flag then we haven't saved anything yet, so init the storage
     _saveSettings();
   }
-  
+
   pinMode(_lightPin, OUTPUT);
   _previousSwitchState = _readSwitchState();
 
   if (!_moduleState) {
     digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
   } else {
-  
+
     switch (_lightMode) {
       case 1:
         // If there's a manual "on" override
@@ -50,12 +53,12 @@ LightSwitch::LightSwitch(AppContext *context, const byte zone, byte moduleId, in
         _previousSwitchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
         break;
     }
-    
+
     _previousLightState = _readLightState();
   }
 
   // DEBUG
-  Serial.println(F("Finished LightSwitch init"));
+  debugPrint(F("LS: Finished LightSwitch init"));
 }
 
 void LightSwitch::_resetSettings() {
@@ -76,7 +79,7 @@ void LightSwitch::_loadSettings() {
   boolean isLoaded = false;
 
   //DEBUG
-  Serial.println(F("Loading module settings"));
+  debugPrint(F("LS: Loading module settings"));
 
   config_t settings;
 
@@ -103,7 +106,7 @@ void LightSwitch::_loadSettings() {
 
 void LightSwitch::_saveSettings() {
   //DEBUG
-  Serial.println(F("Saving module settings"));
+  debugPrint(F("LS: Saving module settings"));
 
   config_t settings;
 
@@ -117,7 +120,7 @@ byte LightSwitch::_readSwitchState () {
 }
 
 byte LightSwitch::_readLightState () {
-  
+
   // Relay on/off states may be inversed depending on physical connections
   // So we take it into account and return simple values
   // 1 if the relay is on, 0 - if it's off
@@ -179,12 +182,12 @@ void LightSwitch::getJSONSettings() {
 
     aJsonObject *moduleItem = aJson.getArrayItem(*(_context->moduleCollection), moduleId-1);
     aJsonObject *moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
-    
+
     // If we have an empty JSON settings structure
     // then fill it with values
 
-    if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {    
-      
+    if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {
+
       // TODO: Add prefixes to param names to mark readonly fields
       aJson.addStringToObject(moduleItem, "moduleType", _moduleType);
       aJson.addNumberToObject(moduleItem, "moduleState", _moduleState);
@@ -220,11 +223,11 @@ boolean LightSwitch::_validateSettings(config_t *settings) {
   if ((settings->lightMode < 0) || (settings->lightMode > 2)) {
     return false;
   }
-  
+
   if ((settings->moduleState < 0) || (settings->moduleState > 1)) {
     return false;
   }
-  
+
   return true;
 }
 
@@ -234,7 +237,7 @@ boolean LightSwitch::setJSONSettings(aJsonObject *moduleItem) {
   // Initialiaze to invalid values so the validation works
   int8_t newModuleState = -1;
   int8_t newLightMode = -1;
-  
+
   // Check for module type first
   moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
   if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {
@@ -243,21 +246,21 @@ boolean LightSwitch::setJSONSettings(aJsonObject *moduleItem) {
 
   moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleState");
   newModuleState = moduleItemProperty->valuebool;
-  
+
   moduleItemProperty = aJson.getObjectItem(moduleItem,  "lightMode");
   newLightMode = moduleItemProperty->valueint;
-  
+
   settings.lightMode = newLightMode;
   settings.moduleState = newModuleState;
-  
+
   if (!_validateSettings(&settings)) {
     return false;
   }
-  
+
   if (_moduleState != newModuleState) {
     newModuleState ? turnModuleOn() : turnModuleOff();
   }
-  
+
   if (_lightMode != newLightMode) {
     switch (newLightMode) {
       case 0:
@@ -271,7 +274,7 @@ boolean LightSwitch::setJSONSettings(aJsonObject *moduleItem) {
         break;
     }
   }
-  
+
   return true;
 }
 
@@ -287,7 +290,7 @@ void LightSwitch::turnModuleOff() {
 void LightSwitch::turnModuleOn() {
   if (!_moduleState) {
     _switchState = digitalRead(_switchPin);
-    
+
     // Check current operation mode (auto or manual override)
     if (_lightMode == 0) {
       _switchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
@@ -321,20 +324,20 @@ void LightSwitch::loopDo() {
       digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
       _previousLightState = 0;
     }
-    
+
     // Let's debounce the switch
-    
+
     _switchState = _readSwitchState();
 
     if (_previousSwitchState != _switchState) {
       _debounceCounter = millis();
       _previousSwitchState = _switchState;
     }
-    
+
     if ((_debounceCounter > 0) && (millis() - _debounceCounter) > _debounceTime) {
       // we reach here if the switch is stable for the debounce time
       _debounceCounter = 0;
-      
+
       if (_switchState != _previousLightState) {
         if (_lightMode >= 1) {
           // If there's a manual override of whatever kind
@@ -345,9 +348,9 @@ void LightSwitch::loopDo() {
         if (_lightMode == 0) {
           // switch the light if previous light state differs and switch is debounced
           _switchState ? digitalWrite(_lightPin, LIGHTSWITCH_RELAY_ON) : digitalWrite(_lightPin, LIGHTSWITCH_RELAY_OFF);
-          
+
           _previousLightState = _readLightState();
-  
+
           // Notify remote server
           _pushNotify();
           _stateChanged = true;

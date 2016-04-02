@@ -4,6 +4,7 @@
 #include "HiveStorage.h"
 #include "DHTSensor.h"
 #include "DHTSwitch.h"
+#include "OWTSensor.h"
 
 #ifdef HIVE_STATIC_IP
 IPAddress nodeIPAddress(192,168,1,60);
@@ -29,7 +30,7 @@ byte hivemac[6] = { 0x90, 0xA2, 0xDA, 0x00, 0x00, 0x00 };
 
 void initModules(AppContext *context, boolean loadSettings) {
   int lastStoragePointer = SettingsOffset;
-  
+
   // If we're using SD card, there's no need to have on offset for system settings
   // which go to the EEPROM instead
   if (StorageType == SDStorage) {
@@ -37,17 +38,20 @@ void initModules(AppContext *context, boolean loadSettings) {
   }
 
   // Create objects for all sensor modules and init each one
-  sensorModuleArray[0] = new LightSwitch(context, hallZone, 1, lastStoragePointer, loadSettings, 8, 4);
+  sensorModuleArray[0] = new LightSwitch(context, hallZone, 1, lastStoragePointer, loadSettings, 26, 27);
   lastStoragePointer += sensorModuleArray[0]->getStorageSize();
 
-  sensorModuleArray[1] = new PirSwitch(context, hallZone, 2, lastStoragePointer, loadSettings, 11, 5);
+  sensorModuleArray[1] = new OWTSensor(context, kitchenZone, 2, lastStoragePointer, loadSettings, 15);
   lastStoragePointer += sensorModuleArray[1]->getStorageSize();
 
-  DHTSensor *sensor = new DHTSensor(context, kitchenZone, 3, lastStoragePointer, loadSettings, 12);
+  //sensorModuleArray[1] = new PirSwitch(context, hallZone, 2, lastStoragePointer, loadSettings, 11, 5);
+  //lastStoragePointer += sensorModuleArray[1]->getStorageSize();
 
-  sensorModuleArray[2] = sensor;
-  lastStoragePointer += sensorModuleArray[2]->getStorageSize();
-  
+  // DHTSensor *sensor = new DHTSensor(context, kitchenZone, 3, lastStoragePointer, loadSettings, 12);
+
+  //sensorModuleArray[2] = sensor;
+  //lastStoragePointer += sensorModuleArray[2]->getStorageSize();
+
   //sensorModuleArray[3] = new DHTSwitch(context, sensor, kitchenZone, 3, lastStoragePointer, loadSettings, 65535, 50, 20, 0, 1, 6);
   //lastStoragePointer += sensorModuleArray[2]->getStorageSize();
 

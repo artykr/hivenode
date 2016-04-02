@@ -26,9 +26,8 @@ uint8_t initSDStorage() {
     // DEBUG
     Serial.println(F("Found settings file"));
 
-    //myFile = SD.open(StorageFileName, FILE_READ);
-    myFile = SD.open("settings.bin", FILE_READ);
-    
+    myFile = SD.open(StorageFileName, FILE_READ);
+
     if (myFile && (myFile.size() > 0)) {
       // DEBUG
       Serial.println(F("File size > 0"));
@@ -40,16 +39,15 @@ uint8_t initSDStorage() {
     }
 
      myFile.close();
-    
+
   } else {
     // DEBUG
     Serial.println(F("File is missing"));
-    //myFile = SD.open(StorageFileName, FILE_WRITE);
-    myFile = SD.open("settings.bin", FILE_WRITE);
+    myFile = SD.open(StorageFileName, FILE_WRITE);
     myFile.close();
     storageResult = 1;
   }
-  
+
   return storageResult;
 }
 
@@ -67,17 +65,17 @@ uint8_t initEEPROMStorage() {
 
 uint8_t initStorage() {
   uint8_t initResult = 0;
-  
+
   // DEBUG
   Serial.print(F("Set up storage: "));
 
   // Check if there's an SD card available
   initResult = initSDStorage();
-  
+
   if (initResult == 0) {
     // If no SD card then use EEPROM for storage
     StorageType = EEPROMStorage;
-    
+
     // DEBUG
     Serial.println(F("EEPROM"));
     Serial.print(F("Init result: "));
@@ -88,11 +86,11 @@ uint8_t initStorage() {
   } else {
     // Use SD card if available
     StorageType = SDStorage;
-    
+
     // We're going to store all system settings in EEPROM,
     // so there's no need for storage offset for SD card
     SettingsOffset = 0;
-    
+
     // DEBUG
     Serial.println(F("SD"));
     Serial.print(F("Init result: "));
@@ -110,19 +108,21 @@ uint8_t loadSystemSettings() {
     // and override it temporarily to read settings from EEPROM
     uint8_t oldStorageType = StorageType;
     StorageType = EEPROMStorage;
-    
+
     // Skip the first "check" byte and read settings
     // All settings are meant to be global variables
     for (int i = 1; i < 4; i++) {
       readStorage(i, hivemac[i+2]);
     }
-    
+
+    // TODO: Load modules count byte
+
     // Restore original storage type
-    StorageType = oldStorageType; 
+    StorageType = oldStorageType;
     return 1;
   } else {
     return 0;
-  } 
+  }
 }
 
 void saveSystemSettings() {
@@ -132,12 +132,14 @@ void saveSystemSettings() {
   // Write a "check" byte first
   // to indicate we have some settings stored in EEPROM
   writeStorage(0, StorageCheckByte);
-  
+
   for (int i = 1; i < 4; i++) {
     writeStorage(i, hivemac[i+2]);
     // DEBUG
     Serial.println("Save system settings");
   }
-  
+
+  // TODO: Save modules count byte
+
   StorageType = oldStorageType;
 }

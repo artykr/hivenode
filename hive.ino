@@ -1,26 +1,33 @@
-#include "SensorModule.h"
-#include "Arduino.h"
-#include "SPI.h"
-#include "SD.h"
-#include "Ethernet.h"
-
 // Don't waste SRAM for a default Webduino favicon
 #define WEBDUINO_FAVICON_DATA ""
 
 // Override Webduino default fail message
 #define WEBDUINO_FAIL_MESSAGE "<h1>Request Failed</h1>"
 
+// Arduino includes and standard libraries
+#include "Arduino.h"
+#include "EEPROM.h"
+#include "Wire.h"
+#include "SPI.h"
+#include "SD.h"
+#include "Ethernet.h"
+
+// External libraries
 #include "WebServer.h"
-#include "WebStream.h"
-#include "aJSON.h"
-#include "DHT.h"
 #include "OneWire.h"
 #include "DallasTemperature.h"
-#include "EEPROM.h"
-#include "MemoryFree.h"
+#include "aJSON.h"
+#include "ds3231.h"
+#include "DHT.h"
+
+// Hive libraries
 #include "HiveSetup.h"
-#include "HiveStorage.h"
+#include "SensorModule.h"
 #include "DeviceDispatch.h"
+#include "HiveUtils.h"
+#include "HiveStorage.h"
+#include "WebStream.h"
+#include "MemoryFree.h"
 
 char requestBuffer[RestRequestLength];
 int requestLen = RestRequestLength;
@@ -42,7 +49,7 @@ int16_t clientPort = 80;
 // Create a WebServer instance
 WebServer nodeWebServer("", 80);
 
-// If Ethernet is initialized and nodeWebServer is started - set to TRUE
+// If Ethernet is initialized and nodeWebServer is started - set it to TRUE
 boolean webServerActive = false;
 
 aJsonObject *moduleCollection;
@@ -53,10 +60,10 @@ AppContext context(&moduleCollection, &pushNotify);
 boolean pushNotify(byte moduleId) {
   // We'll set it to true if a server has discovered our node
   boolean isDiscovered = false;
-  
+
   // DEBUG
   char host[CommonBufferLength];
-  
+
   char buffer[CommonBufferLength];
 
   // Select SPI slave device - Ethernet
@@ -64,7 +71,7 @@ boolean pushNotify(byte moduleId) {
 
   // Create an object for making HTTP requests
   EthernetClient client;
-    
+
   if (webServerActive) {
     // If we have a domain, connect with it
     if ((clientDomain != NULL) && (strlen(clientDomain) > 0)) {
@@ -89,23 +96,23 @@ boolean pushNotify(byte moduleId) {
           if (i < 3)
             strncat(host, ".", 1);
         }
-        Serial.print(F("Push IP found: "));
-        Serial.println(host);
+        debugPrint(F("Push IP found: "), false);
+        debugPrint(host);
 
         client.connect(clientIPAddress, clientPort);
       }
     }
-    
-    if (isDiscovered && client.connected()) { 
+
+    if (isDiscovered && client.connected()) {
       //DEBUG
-      Serial.println(F("Connected to server"));
+      debugPrint(F("Connected to server"));
 
       // Call remote URL with moduleId attached
       // TODO: use no-cost stream operator for printing to client
-      
+
       // Send "GET clientURL/nodeId/moduleId HTTP/1.0"
       // so the remote site knows which pcb/module settings changed
-      
+
       client.print(F("GET "));
       client.print(clientURL);
       client.print(F("/"));
@@ -114,11 +121,11 @@ boolean pushNotify(byte moduleId) {
       client.print(moduleId);
       client.println(F(" HTTP/1.0"));
       client.println();
-      
+
       if (client.connected()) {
         if (client.find("success")) {
           // DEBUG
-          Serial.println("Success");
+          debugPrint("Success");
 
           client.stop();
           return true;
@@ -129,19 +136,19 @@ boolean pushNotify(byte moduleId) {
 
     client.stop();
   }
-  
+
   return false;
 }
 
 // Process a REST request for an item (module) (URL contains ID)
 void webItemRequest(WebServer &server, WebServer::ConnectionType type, long *moduleId) {
-  
+
   // Define moduleCollelction array item index which is moduleId - 1
   int i = *moduleId - 1;
 
   // DEBUG
-  Serial.print(F("Processing item request: "));
-  Serial.println(*moduleId);
+  debugPrint(F("Processing item request: "), false);
+  debugPrint(*moduleId);
 
   // Module id is out of range
   if ((*moduleId > modulesCount) || (*moduleId < 1)) {
@@ -149,18 +156,18 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, long *mod
     server.httpFail();
     return;
   }
-  
+
   // aJson uses a wrapper for streams
   WebStream webStream(&server);
   aJsonStream jsonStream(&webStream);
 
   switch (type) {
     case WebServer::GET:
-      
+
       // Process request for a single module (item) settings
 
       server.httpSuccess("application/json");
-      sensorModuleArray[i]->getJSONSettings();     
+      sensorModuleArray[i]->getJSONSettings();
       moduleItem = aJson.getArrayItem(moduleCollection, i);
       aJson.print(moduleItem, &jsonStream);
 
@@ -176,9 +183,9 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, long *mod
       aJsonObject *newModuleItem = aJson.parse(&jsonStream);
 
       // DEBUG
-      Serial.print(F("Received data: "));
+      debugPrint(F("Received data: "), false);
       char *json1 = aJson.print(newModuleItem);
-      Serial.println(json1);
+      debugPrint(json1);
       free(json1);
 
       // Set the parsed settings
@@ -206,9 +213,9 @@ void webItemRequest(WebServer &server, WebServer::ConnectionType type, long *mod
   }
 }
 
-// Process request for the whole items (modules) settings collection 
+// Process request for the whole items (modules) settings collection
 void webCollectionRequest(WebServer &server, WebServer::ConnectionType type) {
-  
+
   WebStream webStream(&server);
   aJsonStream jsonStream(&webStream);
 
@@ -244,8 +251,9 @@ void dispatchRESTRequest(WebServer &server, WebServer::ConnectionType type,
     server.httpSuccess();
     return;
   }
-  
-  Serial.println(F("Processing REST request..."));
+
+  // DEBUG
+  debugPrint(F("Processing REST request..."));
 
   // RESTful interface structure:
   // /modules
@@ -254,34 +262,34 @@ void dispatchRESTRequest(WebServer &server, WebServer::ConnectionType type,
   // /modules/<id>
   //      GET - outputs json structure for a module with moduleId == <id>
   //      PUT - updates settings for a module with moduleId == <id>
-  
+
   if (strcmp(url_path[0], "modules") == 0) {
-    
+
     // DEBUG
-    Serial.println(F("Found /modules in request URL"));
+    debugPrint(F("Found /modules in request URL"));
 
     if (url_path[1]) {
       // We use safe strtol instead of unsafe atoi at a cost
       // of moduleId being of type long
       moduleId = strtol(url_path[1], NULL, 10);
     }
-    
+
     if (moduleId > 0) {
 
       // We deal with a single module request
       webItemRequest(server, type, &moduleId);
       return;
-      
+
     } else {
 
       // We deal with the whole modules collection request
       webCollectionRequest(server, type);
       return;
-      
+
     }
-    
+
   }
-  
+
   server.httpFail();
 
 }
@@ -301,7 +309,7 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     server.httpSuccess();
     return;
   }
-  
+
   if (type == WebServer::POST) {
 
     // We could use filtering, but it's memory consuming
@@ -311,11 +319,11 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     //clientInfo = aJson.parse(&jsonStream, jsonFilter);
 
     clientInfo = aJson.parse(&jsonStream);
-    
+
     // DEBUG
-    Serial.print(F("Domain and url from server: "));
+    debugPrint(F("Domain and url from server: "), false);
     char *json = aJson.print(clientInfo);
-    Serial.println(json);
+    debugPrint(json);
     free(json);
 
     // Discover request structure
@@ -324,7 +332,7 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
     // ip - object, if we have no local DNS and need to talk through ip address
     //    o1, o2, o3, o4 - numbers, ip address octets so we don't need to parse the address
     // url - string, URL tail (without domain), begins with a slash (32 chars max)
-    
+
     // Get remote domain from json
     infoItem = aJson.getObjectItem(clientInfo, "domain");
 
@@ -337,7 +345,7 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
         clientDomain[sizeof(clientDomain)-1] = 0;
       }
     }
-    
+
     // Get remote url
     infoItem = aJson.getObjectItem(clientInfo, "url");
     if (infoItem && (infoItem->type == aJson_String)) {
@@ -348,12 +356,12 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
         clientURL[sizeof(clientURL)-1] = 0;
       }
     }
-    
+
     infoItem = aJson.getObjectItem(clientInfo, "ip");
 
     if (infoItem) {
       infoItem = infoItem->child;
-    
+
       while (infoItem && (i < 4)) {
         if (infoItem->type == aJson_Int) {
           clientIPAddress[i] = infoItem->valueint;
@@ -371,7 +379,7 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
 
     // TODO: validate the whole structure
     server.httpSuccess("application/json");
-    
+
     infoItem = aJson.createObject();
     // Prepare JSON structure containing pcb id and number of sensor modules
     aJson.addItemToObject(infoItem, "id", aJson.createItem(nodeId));
@@ -381,10 +389,10 @@ void webDiscoverCommand(WebServer &server, WebServer::ConnectionType type, char 
 
     aJson.deleteItem(infoItem);
     aJson.deleteItem(clientInfo);
-    
+
     return;
   }
-  
+
   server.httpFail();
 }
 
@@ -393,9 +401,10 @@ void webInfoCommand(WebServer &server, WebServer::ConnectionType type, char *url
   WebStream webStream(&server);
   aJsonStream jsonStream(&webStream);
   aJsonObject *infoItem;
-  
-  Serial.println(F("Processing info request..."));
-  
+
+  // DEBUG
+  debugPrint(F("Processing info request..."));
+
   switch (type) {
     case WebServer::HEAD:
     {
@@ -406,7 +415,7 @@ void webInfoCommand(WebServer &server, WebServer::ConnectionType type, char *url
     {
       server.httpSuccess("application/json");
       // Reload JSON structures for each module
-      
+
       infoItem = aJson.createObject();
       aJson.addItemToObject(infoItem, "memory", aJson.createItem(freeMemory()));
       aJson.addItemToObject(infoItem, "storage", aJson.createItem(StorageType));
@@ -430,7 +439,7 @@ void setupMACAddress(boolean loadSettings) {
     for (int i = 1; i < 4; i++) {
       hivemac[i+2] = random(0, 255);
     }
-    
+
     saveSystemSettings();
   }
 
@@ -440,11 +449,11 @@ boolean setupServer() {
   boolean ethernetEnabled = false;
 
   // DEBUG
-  Serial.println(F("Starting Ethernet..."));
-  
+  debugPrint(F("Starting Ethernet..."));
+
   // Select Ethernet on SPI
   useDevice(DeviceIdEthernet);
-  
+
   // If we have a static IP
 #ifdef HIVE_STATIC_IP
   Ethernet.begin(hivemac, nodeIPAddress);
@@ -462,7 +471,7 @@ boolean setupServer() {
     delay(1000);
 
     // DEBUG
-    Serial.println(F("Ethernet started"));
+    debugPrint(F("Ethernet started"));
 
 #ifndef HIVE_STATIC_IP
     // Only get ID if received through DHCP
@@ -470,7 +479,7 @@ boolean setupServer() {
 #endif
 
     // DEBUG
-    Serial.print(F("IP address: "));
+    debugPrint(F("IP address: "), false);
     Serial.println(nodeIPAddress);
 
     nodeWebServer.addCommand("discover", &webDiscoverCommand);
@@ -478,13 +487,13 @@ boolean setupServer() {
     nodeWebServer.setUrlPathCommand(&dispatchRESTRequest);
     //nodeWebServer.setFailureCommand(&webFailureCommand);
     nodeWebServer.begin();
-    
+
     return true;
   }
-  
+
   // DEBUG
-  Serial.println(F("Failed to start Ethernet"));
-  
+  debugPrint(F("Failed to start Ethernet"));
+
   return false;
 }
 
@@ -499,26 +508,28 @@ void addToJSONCollection(byte id) {
 void setup() {
   boolean systemSettingsLoaded = false;
   boolean moduleSettingsExist = false;
-  
+
   systemSettingsLoaded = loadSystemSettings();
 
   // Init SPI CS pins
   initPins();
 
+#ifdef HIVE_DEBUG
   Serial.begin(9600);
   delay(1000);
+#endif
 
   // DEBUG
-  Serial.print(F("Free memory on start: "));
-  Serial.println(freeMemory());
+  debugPrint(F("Free memory on start: "), false);
+  debugPrint(freeMemory());
 
+  useDevice(DeviceIdEthernet);
   // Init Ethernet first so it responds to
   // SPI slave select command
   setupMACAddress(systemSettingsLoaded);
   webServerActive = setupServer();
 
   useDevice(DeviceIdSD);
-
   // Init storage and check if there are some
   // modules settings stored
   moduleSettingsExist = initStorage();
@@ -528,22 +539,22 @@ void setup() {
 
   // Create and fill json structure for the REST interface
   moduleCollection = aJson.createArray();
-  
+
   // TODO: Start cycle through SensorModuleArray
   for (byte i = 1; i <= modulesCount; i++) {
     // Create an empty item in json collection
     addToJSONCollection(i);
-    
+
     // Add modules settings to this item through the context object
     sensorModuleArray[i - 1]->getJSONSettings();
   }
-  
+
   // DEBUG
-  Serial.print(F("Context collection: "));
+  debugPrint(F("Context collection: "), false);
   char *json = aJson.print(*context.moduleCollection);
-  Serial.println(json);
+  debugPrint(json);
   free(json);
-  
+
 }
 
 void loop() {
@@ -557,4 +568,23 @@ void loop() {
     useDevice(DeviceIdEthernet);
     nodeWebServer.processConnection(requestBuffer, &requestLen);
   }
+}
+
+void handleInterrupts(uint8_t handlerIndex) {
+  /*if (interruptModuleArray[handlerIndex]) {
+    interruptModuleArray[handlerIndex]->handleInterrupt();
+  }*/
+}
+
+// TODO: check for the AVR variant here
+ISR(TIMER3_OVF_vect) {
+  handleInterrupts(0);
+}
+
+ISR(TIMER4_OVF_vect) {
+  handleInterrupts(1);
+}
+
+ISR(TIMER5_OVF_vect) {
+  handleInterrupts(2);
 }

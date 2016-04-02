@@ -4,39 +4,40 @@
 #include "SensorModule.h"
 #include "aJson.h"
 #include "AppContext.h"
+#include "HiveUtils.h"
 
 const char PirSwitch::_moduleType[12] = "PirSwitch";
 
-PirSwitch::PirSwitch(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings, int8_t switchPin, int8_t lightPin) : 
+PirSwitch::PirSwitch(AppContext *context, const byte zone, byte moduleId, int storagePointer, boolean loadSettings, int8_t switchPin, int8_t lightPin) :
   SensorModule(storagePointer, moduleId, zone),
   _switchPin(switchPin),
   _lightPin(lightPin),
   _context(context) {
-  
+
   _stateChanged = true;
   _resetSettings();
-  
+
   // DEBUG
-  Serial.println(F("Init PirSwitch"));
+  debugPrint(F("PIR: Init PirSwitch"));
 
   pinMode(_switchPin, INPUT);
-  
+
   if (loadSettings) {
     _loadSettings();
   } else {
     // If there's no load flag then we haven't saved anything yet, so init the storage
     _saveSettings();
   }
-  
+
   pinMode(_lightPin, OUTPUT);
   _previousSwitchState = _readSwitchState();
 
- 
+
 
   if (!_moduleState) {
     digitalWrite(_lightPin, SWITCH_RELAY_OFF);
   } else {
-  
+
     switch (_lightMode) {
       case 1:
         // If there's a manual "on" override
@@ -51,12 +52,12 @@ PirSwitch::PirSwitch(AppContext *context, const byte zone, byte moduleId, int st
         _previousSwitchState ? digitalWrite(_lightPin, SWITCH_RELAY_ON) : digitalWrite(_lightPin, SWITCH_RELAY_OFF);
         break;
     }
-    
+
     _previousLightState = _readLightState();
   }
 
   // DEBUG
-  Serial.println(F("Finished PirSwitch init"));
+  debugPrint(F("PIR: Finished PirSwitch init"));
 }
 
 byte PirSwitch::getStorageSize () {
@@ -74,7 +75,7 @@ void PirSwitch::_loadSettings() {
   boolean isLoaded = false;
 
   //DEBUG
-  Serial.println(F("Loading module settings"));
+  debugPrint(F("PIR: Loading module settings"));
 
   config_t settings;
 
@@ -107,9 +108,9 @@ void PirSwitch::_saveSettings() {
   settings.moduleState = _moduleState;
   settings.pirDelay = _pirDelay;
   writeStorage(_storagePointer, settings);
-  
+
   //DEBUG
-  Serial.println("Save module settings");
+  debugPrint("PIR: Save module settings");
 }
 
 byte PirSwitch::_readSwitchState () {
@@ -117,7 +118,7 @@ byte PirSwitch::_readSwitchState () {
 }
 
 byte PirSwitch::_readLightState () {
-  
+
   // Relay on/off states may be inversed depending on physical connections
   // So we take it into account and return simple values
   // 1 if the relay is on, 0 - if it's off
@@ -179,12 +180,12 @@ void PirSwitch::getJSONSettings() {
 
     aJsonObject *moduleItem = aJson.getArrayItem(*(_context->moduleCollection), moduleId-1);
     aJsonObject *moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
-    
+
     // If we have an empty JSON settings structure
     // then fill it with values
 
-    if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {    
-      
+    if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {
+
       // TODO: Add prefixes to param names to mark readonly fields
       aJson.addStringToObject(moduleItem, "moduleType", _moduleType);
       aJson.addNumberToObject(moduleItem, "moduleState", _moduleState);
@@ -225,7 +226,7 @@ boolean PirSwitch::_validateSettings(config_t *settings) {
   if ((settings->lightMode < 0) || (settings->lightMode > 2)) {
     return false;
   }
-  
+
   if ((settings->moduleState < 0) || (settings->moduleState > 1)) {
     return false;
   }
@@ -235,7 +236,7 @@ boolean PirSwitch::_validateSettings(config_t *settings) {
   if ((settings->pirDelay < 0) || (settings->pirDelay > 255)) {
     return false;
   }
-  
+
   return true;
 }
 
@@ -246,7 +247,7 @@ boolean PirSwitch::setJSONSettings(aJsonObject *moduleItem) {
   int8_t newModuleState = -1;
   int8_t newLightMode = -1;
   int8_t newPirDelay = -1;
-  
+
   // Check for module type first
   moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleType");
   if (strcmp(moduleItemProperty->valuestring, _moduleType) != 0) {
@@ -255,25 +256,25 @@ boolean PirSwitch::setJSONSettings(aJsonObject *moduleItem) {
 
   moduleItemProperty = aJson.getObjectItem(moduleItem, "moduleState");
   newModuleState = moduleItemProperty->valuebool;
-  
+
   moduleItemProperty = aJson.getObjectItem(moduleItem,  "lightMode");
   newLightMode = moduleItemProperty->valueint;
 
   moduleItemProperty = aJson.getObjectItem(moduleItem,  "pirDelay");
   newPirDelay = moduleItemProperty->valueint;
-  
+
   settings.lightMode = newLightMode;
   settings.moduleState = newModuleState;
   settings.pirDelay = newPirDelay;
-  
+
   if (!_validateSettings(&settings)) {
     return false;
   }
-  
+
   if (_moduleState != newModuleState) {
     newModuleState ? turnModuleOn() : turnModuleOff();
   }
-  
+
   if (_lightMode != newLightMode) {
     switch (newLightMode) {
       case 0:
@@ -287,7 +288,7 @@ boolean PirSwitch::setJSONSettings(aJsonObject *moduleItem) {
         break;
     }
   }
-  
+
   return true;
 }
 
@@ -303,7 +304,7 @@ void PirSwitch::turnModuleOff() {
 void PirSwitch::turnModuleOn() {
   if (!_moduleState) {
     _switchState = digitalRead(_switchPin);
-    
+
     // Check current operation mode (auto or manual override)
     if (_lightMode == 0) {
       _switchState ? digitalWrite(_lightPin, SWITCH_RELAY_ON) : digitalWrite(_lightPin, SWITCH_RELAY_OFF);
@@ -330,7 +331,7 @@ void PirSwitch::loopDo() {
       digitalWrite(_lightPin, SWITCH_RELAY_OFF);
       _previousLightState = 0;
     }
-        
+
     _switchState = _readSwitchState();
 
     if (_switchState == HIGH) {

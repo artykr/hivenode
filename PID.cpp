@@ -1,4 +1,5 @@
 #include "PID.h"
+#include "HiveUtils.h"
 
 // Parts from http://www.mstarlabs.com/apeng/techniques/pidsoftw.html
 
@@ -19,6 +20,7 @@ PID::PID (float kP, float kI, float kD, float *input, float *output, float limit
   // TRUE - means direct, FALSE - reverse
   _direction = true;
   setControlDirection(_direction);
+  _useFilter = false;
 }
 
 // Sets PID coefs with respect to the sample time
@@ -115,8 +117,8 @@ boolean PID::doControl() {
       *_output = _kP * _error + _integralTerm - derivativeTerm;
 
       // DEBUG
-      Serial.print(*_output);
-      Serial.print(";");
+      debugPrint(*_output, false);
+      debugPrint(";", false);
 
       _constrainOutput();
 
@@ -139,15 +141,15 @@ void PID::initPITuning(uint16_t steadyTreshold, float noiseTreshold) {
   _tuningOutput1 = _limitMin / 2 + _limitMax / 2;
 
   // DEBUG
-  Serial.print("Output 1: ");
-  Serial.println(_tuningOutput1);
+  debugPrint("Output 1: ", false);
+  debugPrint(_tuningOutput1);
 
   // Set step output 30% of initial output
   _tuningOutput2 = 1.3f * _tuningOutput1;
 
   // DEBUG
-  Serial.print("Output 2: ");
-  Serial.println(_tuningOutput2);
+  debugPrint("Output 2: ", false);
+  debugPrint(_tuningOutput2);
 
   // Set tresholds
   _noiseTreshold = noiseTreshold;
@@ -206,9 +208,9 @@ boolean PID::doPITuning() {
       _inputStart = *_input;
 
       // DEBUG
-      Serial.println("Finished step 1");
-      Serial.print("Stabilized at ");
-      Serial.println(*_input);
+      debugPrint("Finished step 1");
+      debugPrint("Stabilized at ", false);
+      debugPrint(*_input);
 
       // Tuning isn't completed yet
       return false;
@@ -224,9 +226,9 @@ boolean PID::doPITuning() {
       _inputStart = *_input;
 
       // DEBUG
-      Serial.println("Finished step 2");
-      Serial.print("Stabilized at ");
-      Serial.println(*_input);
+      debugPrint("Finished step 2");
+      debugPrint("Stabilized at ", false);
+      debugPrint(*_input);
 
       return false;
     }
@@ -241,9 +243,9 @@ boolean PID::doPITuning() {
       _inputStart = *_input;
 
       // DEBUG
-      Serial.println("Finished step 3");
-      Serial.print("Stabilized at ");
-      Serial.println(*_input);
+      debugPrint("Finished step 3");
+      debugPrint("Stabilized at ", false);
+      debugPrint(*_input);
 
       return false;
     }
@@ -253,26 +255,28 @@ boolean PID::doPITuning() {
   if (_tuningState == 3) {
     if (_doTuningStep4()) {
        // DEBUG
-      Serial.println("Finished step 4");
-      Serial.print("Stabilized at ");
-      Serial.println(*_input);
+      debugPrint("Finished step 4");
+      debugPrint("Stabilized at ", false);
+      debugPrint(*_input);
 
       _theta = (_theta1 + _theta2) / 2;
 
-      Serial.print("Theta: ");
-      Serial.println(_theta);
-      Serial.print("Process time: ");
-      Serial.println(_processTime);
-      Serial.print("Input change: ");
-      Serial.println(_inputChange);
-      Serial.print("Output change: ");
-      Serial.println(_tuningOutput2 - _tuningOutput1);
+      // DEBUG
+      debugPrint("Theta: ", false);
+      debugPrint(_theta);
+      debugPrint("Process time: ", false);
+      debugPrint(_processTime);
+      debugPrint("Input change: ", false);
+      debugPrint(_inputChange);
+      debugPrint("Output change: ", false);
+      debugPrint(_tuningOutput2 - _tuningOutput1);
 
-      float slope = _inputChange / (_tuningOutput2 - _tuningOutput1) * _processTime;
+      float slope = _inputChange / ((_tuningOutput2 - _tuningOutput1) * _processTime);
       float tauC = _processTime > 8 * _theta ? _processTime : 8 * _theta;
 
       float kC = (1 / slope) * (1 / (_theta + tauC));
-      float tauI = _processTime < 4 * (tauC + _theta);
+      //float tauI = _processTime < 4 * (tauC + _theta) ? _processTime : 4 * (tauC + _theta);
+      float tauI = _processTime;
 
       setKs(kC, kC / tauI, 0);
 
@@ -284,7 +288,7 @@ boolean PID::doPITuning() {
   return false;
 }
 
-unsigned long PID::getStepTime() {
+unsigned long PID::getStableTime() {
   float stepTime = _processTime * 100.0f / 63.0f;
   return (long)stepTime;
 }
@@ -301,22 +305,22 @@ boolean PID::_doTuningStep1() {
       _theta1 -= 3 * _timeStep;
 
       // DEBUG
-      Serial.print("Theta 1 found: ");
-      Serial.println(_theta1);
+      debugPrint("Theta 1 found: ", false);
+      debugPrint(_theta1);
   }
 
   if (deltaInput >= _noiseTreshold) {
     deltaPrevious = *_input - _previousInput;
     // DEBUG
-    Serial.print("Delta previous: ");
-    Serial.println(deltaPrevious);
+    debugPrint("Delta previous: ", false);
+    debugPrint(deltaPrevious);
 
     if (abs(deltaPrevious) <= _noiseTreshold) {
       _steadyCount++;
 
       // DEBUG
-      Serial.print("Stable for: ");
-      Serial.println(_steadyCount);
+      debugPrint("Stable for: ", false);
+      debugPrint(_steadyCount);
     } else {
       _steadyCount = 0;
     }
@@ -383,7 +387,7 @@ boolean PID::_doTuningStep4() {
   deltaInput = abs(deltaInput);
 
   if (deltaInput >= inputTreshold) {
-    _processTime = millis() - _startTuningTime;
+    _processTime = timeDiff(_startTuningTime);
     return true;
   }
 
